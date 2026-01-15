@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Settings, RefreshCw, CheckCircle, AlertCircle, Loader, Sparkles } from 'lucide-react';
 
-const BACKEND_URL = 'https://contentops-backend-production.up.railway.app';
+const BACKEND_URL = 'https://test-backend-production-f29b.up.railway.app';
 
 const IMPROVED_PROMPT = `You are an expert blog fact-checker and editor specializing in B2B SaaS content.
 
@@ -54,6 +54,7 @@ export default function ContentOps() {
   const [result, setResult] = useState(null);
   const [editedContent, setEditedContent] = useState('');
   const [viewMode, setViewMode] = useState('side-by-side');
+  const [showOnlyChanges, setShowOnlyChanges] = useState(false);
 
   useEffect(() => {
     const saved = localStorage.getItem('contentops_config');
@@ -161,6 +162,39 @@ export default function ContentOps() {
     }
   };
 
+  // Simple text extraction from HTML (strips tags)
+  const stripHTML = (html) => {
+    const temp = document.createElement('div');
+    temp.innerHTML = html;
+    return temp.textContent || temp.innerText || '';
+  };
+
+  // Find text differences - only actual changed words
+  const getTextDifferences = () => {
+    if (!result) return { added: [], removed: [] };
+    
+    const originalText = stripHTML(result.originalContent).toLowerCase();
+    const updatedText = stripHTML(editedContent).toLowerCase();
+    
+    // Split into words
+    const originalWords = originalText.split(/\s+/).filter(w => w.length > 2);
+    const updatedWords = updatedText.split(/\s+/).filter(w => w.length > 2);
+    
+    // Find words that changed
+    const originalSet = new Set(originalWords);
+    const updatedSet = new Set(updatedWords);
+    
+    const added = [...updatedSet].filter(w => !originalSet.has(w));
+    const removed = [...originalSet].filter(w => !updatedSet.has(w));
+    
+    return { 
+      added: added.slice(0, 20), // Top 20 changes
+      removed: removed.slice(0, 20) 
+    };
+  };
+
+  const differences = result ? getTextDifferences() : { added: [], removed: [] };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900">
       <nav className="bg-black bg-opacity-30 backdrop-blur-xl border-b border-white border-opacity-10">
@@ -259,6 +293,47 @@ export default function ContentOps() {
                   </li>
                 ))}
               </ul>
+            </div>
+
+            {/* WORD-LEVEL CHANGES */}
+            <div className="bg-white bg-opacity-10 rounded-xl p-6">
+              <h3 className="text-xl font-bold text-white mb-4">Text Changes:</h3>
+              <div className="grid grid-cols-2 gap-6">
+                {differences.removed.length > 0 && (
+                  <div>
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="w-3 h-3 rounded-full bg-red-500"></div>
+                      <span className="text-red-300 font-semibold text-sm">REMOVED</span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {differences.removed.map((word, i) => (
+                        <span key={i} className="bg-red-500 bg-opacity-20 border border-red-500 border-opacity-40 text-red-200 px-2 py-1 rounded text-sm">
+                          {word}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {differences.added.length > 0 && (
+                  <div>
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="w-3 h-3 rounded-full bg-green-500"></div>
+                      <span className="text-green-300 font-semibold text-sm">ADDED</span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {differences.added.map((word, i) => (
+                        <span key={i} className="bg-green-500 bg-opacity-20 border border-green-500 border-opacity-40 text-green-200 px-2 py-1 rounded text-sm">
+                          {word}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+              {differences.added.length === 0 && differences.removed.length === 0 && (
+                <p className="text-purple-300 text-sm">No significant word changes detected (only formatting/grammar fixes)</p>
+              )}
             </div>
 
             <div className="bg-white bg-opacity-10 rounded-xl p-6">
