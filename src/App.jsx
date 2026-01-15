@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Settings, RefreshCw, CheckCircle, AlertCircle, Loader, Sparkles } from 'lucide-react';
 
-const BACKEND_URL = 'https://contentops-backend-production.up.railway.app';
+const BACKEND_URL = 'https://test-backend-production-f29b.up.railway.app';
 
 const SIMPLE_PROMPT = `You are a blog fact-checker and editor.
 
