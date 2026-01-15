@@ -1,22 +1,47 @@
 import React, { useState, useEffect } from 'react';
 import { Settings, RefreshCw, CheckCircle, AlertCircle, Loader, Sparkles } from 'lucide-react';
 
-const BACKEND_URL = 'https://test-backend-production-f29b.up.railway.app';
+const BACKEND_URL = 'https://contentops-backend-production.up.railway.app';
 
-const SIMPLE_PROMPT = `You are a blog fact-checker and editor.
+const IMPROVED_PROMPT = `You are an expert blog fact-checker and editor specializing in B2B SaaS content.
 
-FACT-CHECKING:
-- Update outdated pricing, features, statistics from search results
-- Fix SalesRobot specifics: 4200+ users, 75 requests/day, AI Appointment Setter
+=== FUNNEL-AWARE EDITING ===
+Identify the blog's funnel stage (TOFU/MOFU/BOFU) and edit accordingly:
 
-GRAMMAR:
-- Remove em-dashes and banned words (transform, delve, unleash, revolutionize, etc)
-- Shorten 30+ word sentences
+**TOFU (Awareness)**: Educational, broad topics
+- Keep high-level explanations, industry context
+- Update generic statistics and trend data
+- Don't over-promote specific products
+
+**MOFU (Consideration)**: Comparisons, "best tools" lists
+- Keep balanced comparisons and use cases
+- Update pricing, features, user counts precisely
+- Help readers evaluate options fairly
+
+**BOFU (Decision)**: Product-specific, implementation guides
+- Keep conversion-focused language and CTAs
+- Update exact pricing, current features
+- Remove friction, provide concrete value
+
+=== CRITICAL HTML PRESERVATION ===
+- NEVER modify HTML tags, attributes, or structure
+- ONLY update TEXT CONTENT between tags
+- Preserve ALL links, images, classes, IDs
+- Keep exact nesting and formatting
+
+=== FACT-CHECKING ===
+- Update pricing to 2025 current rates
+- Fix user counts (e.g., "4200+ users" for SalesRobot)
+- LinkedIn limits: 75 connection requests/day (NOT 100/week)
+- Match official product terminology
+
+=== GRAMMAR ===
+- Remove: em-dashes, transform, delve, unleash, revolutionize, meticulous, realm, bespoke, autopilot, magic
+- Split 30+ word sentences
 - Use contractions and active voice
 
-PRESERVE:
-- All HTML structure, headings, images, links
-- Return complete blog (no truncation)`;
+=== OUTPUT ===
+Return ONLY complete HTML (no markdown blocks, no explanations, no truncation)`;
 
 export default function ContentOps() {
   const [view, setView] = useState('home');
@@ -28,7 +53,7 @@ export default function ContentOps() {
   const [status, setStatus] = useState({ type: '', message: '' });
   const [result, setResult] = useState(null);
   const [editedContent, setEditedContent] = useState('');
-  const [viewMode, setViewMode] = useState('side-by-side'); // 'side-by-side' or 'updated-only'
+  const [viewMode, setViewMode] = useState('side-by-side');
 
   useEffect(() => {
     const saved = localStorage.getItem('contentops_config');
@@ -82,7 +107,7 @@ export default function ContentOps() {
           title: blog.fieldData.name,
           anthropicKey: config.anthropicKey,
           braveKey: config.braveKey,
-          writingPrompt: SIMPLE_PROMPT
+          writingPrompt: IMPROVED_PROMPT
         })
       });
 
@@ -95,7 +120,9 @@ export default function ContentOps() {
         claudeCalls: data.claudeCalls || 0,
         content: data.content || blog.fieldData['post-body'],
         originalContent: blog.fieldData['post-body'] || '',
-        duration: data.duration || 0
+        duration: data.duration || 0,
+        htmlTagsOriginal: data.htmlTagsOriginal,
+        htmlTagsUpdated: data.htmlTagsUpdated
       });
       setEditedContent(data.content || blog.fieldData['post-body']);
       setStatus({ type: 'success', message: `Done! ${data.searchesUsed} searches, ${(data.duration/1000).toFixed(1)}s` });
@@ -155,8 +182,8 @@ export default function ContentOps() {
       <div className="max-w-6xl mx-auto px-4 py-12">
         {view === 'home' && (
           <div className="text-center">
-            <h1 className="text-5xl font-bold text-white mb-4">Simple Fact-Checker</h1>
-            <p className="text-xl text-purple-200 mb-8">Brave Search + Claude AI</p>
+            <h1 className="text-5xl font-bold text-white mb-4">Funnel-Aware Fact-Checker</h1>
+            <p className="text-xl text-purple-200 mb-8">Brave Search + Claude AI + HTML Preservation</p>
             <button onClick={() => setView(savedConfig ? 'dashboard' : 'setup')} className="bg-gradient-to-r from-pink-500 to-purple-600 text-white px-8 py-4 rounded-xl font-bold">
               {savedConfig ? 'Dashboard →' : 'Setup →'}
             </button>
@@ -216,7 +243,10 @@ export default function ContentOps() {
           <div className="space-y-6">
             <div className="bg-green-600 bg-opacity-30 rounded-xl p-6">
               <h2 className="text-2xl font-bold text-white mb-2">Analysis Complete</h2>
-              <p className="text-green-200">{result.searchesUsed} searches • {(result.duration/1000).toFixed(1)}s</p>
+              <p className="text-green-200">
+                {result.searchesUsed} searches • {(result.duration/1000).toFixed(1)}s
+                {result.htmlTagsOriginal && ` • HTML: ${result.htmlTagsOriginal} → ${result.htmlTagsUpdated} tags`}
+              </p>
             </div>
 
             <div className="bg-white bg-opacity-10 rounded-xl p-6">
