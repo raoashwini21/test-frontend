@@ -1,9 +1,16 @@
-import React, { useState, useEffect } from 'react';
-import { Settings, RefreshCw, CheckCircle, AlertCircle, Loader, Sparkles } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Settings, RefreshCw, CheckCircle, AlertCircle, Loader, Sparkles, Edit3 } from 'lucide-react';
 
-const BACKEND_URL = 'https://test-backend-production-f29b.up.railway.app';
+const BACKEND_URL = 'https://contentops-backend-production.up.railway.app';
 
 const IMPROVED_PROMPT = `You are an expert blog fact-checker and editor specializing in B2B SaaS content.
+
+=== CRITICAL: FIX CONTRADICTIONS FIRST ===
+Before making any other changes, scan the ENTIRE blog for internal contradictions:
+- If it says "X costs the same as Y at $29" then shows "X Basic Plan: $59", REMOVE the "same price" claim
+- If pricing conflicts exist, use the MOST SPECIFIC information (pricing tables trump vague statements)
+- Never leave contradictory statements about the same product
+- Example fix: "SalesRobot starts at the same price as Meet Alfred ($29). Basic Plan: $59/mo" → "SalesRobot offers competitive pricing. Basic Plan: $59/mo ($39 annually)"
 
 === FUNNEL-AWARE EDITING ===
 Identify the blog's funnel stage (TOFU/MOFU/BOFU) and edit accordingly:
@@ -53,8 +60,7 @@ export default function ContentOps() {
   const [status, setStatus] = useState({ type: '', message: '' });
   const [result, setResult] = useState(null);
   const [editedContent, setEditedContent] = useState('');
-  const [viewMode, setViewMode] = useState('side-by-side');
-  const [showOnlyChanges, setShowOnlyChanges] = useState(false);
+  const editorRef = useRef(null);
 
   useEffect(() => {
     const saved = localStorage.getItem('contentops_config');
@@ -64,6 +70,13 @@ export default function ContentOps() {
       setConfig(parsed);
     }
   }, []);
+
+  // Highlight changes when result changes
+  useEffect(() => {
+    if (result && editorRef.current) {
+      highlightChanges();
+    }
+  }, [result, editedContent]);
 
   const saveConfig = () => {
     if (!config.anthropicKey || !config.braveKey || !config.webflowKey || !config.collectionId) {
@@ -135,6 +148,49 @@ export default function ContentOps() {
     }
   };
 
+  const highlightChanges = () => {
+    if (!editorRef.current || !result) return;
+
+    const parser = new DOMParser();
+    const originalDoc = parser.parseFromString(result.originalContent, 'text/html');
+    const updatedDoc = parser.parseFromString(editedContent, 'text/html');
+
+    const originalText = originalDoc.body.textContent || '';
+    const updatedText = updatedDoc.body.textContent || '';
+
+    // Create a simple word-based diff
+    const originalWords = originalText.split(/\s+/);
+    const updatedWords = updatedText.split(/\s+/);
+
+    // Find differences using a simple approach
+    let highlightedHTML = editedContent;
+
+    // Only highlight if there are actual text differences
+    if (originalText.trim() !== updatedText.trim()) {
+      // Wrap changed sections in marks
+      // This is a simple approach - wraps entire changed sentences/phrases
+      const sentences = updatedText.split(/[.!?]+/).filter(s => s.trim());
+      
+      sentences.forEach(sentence => {
+        const trimmed = sentence.trim();
+        if (trimmed && !originalText.includes(trimmed)) {
+          // This sentence/phrase is new or changed
+          const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const regex = new RegExp(`(${escaped})`, 'gi');
+          highlightedHTML = highlightedHTML.replace(regex, '<mark style="background-color: #86efac; padding: 2px 4px; border-radius: 3px;">$1</mark>');
+        }
+      });
+    }
+
+    editorRef.current.innerHTML = highlightedHTML;
+  };
+
+  const handleEditorInput = () => {
+    if (editorRef.current) {
+      setEditedContent(editorRef.current.innerHTML);
+    }
+  };
+
   const publishToWebflow = async () => {
     if (!result || !selectedBlog) return;
     setLoading(true);
@@ -162,39 +218,6 @@ export default function ContentOps() {
     }
   };
 
-  // Simple text extraction from HTML (strips tags)
-  const stripHTML = (html) => {
-    const temp = document.createElement('div');
-    temp.innerHTML = html;
-    return temp.textContent || temp.innerText || '';
-  };
-
-  // Find text differences - only actual changed words
-  const getTextDifferences = () => {
-    if (!result) return { added: [], removed: [] };
-    
-    const originalText = stripHTML(result.originalContent).toLowerCase();
-    const updatedText = stripHTML(editedContent).toLowerCase();
-    
-    // Split into words
-    const originalWords = originalText.split(/\s+/).filter(w => w.length > 2);
-    const updatedWords = updatedText.split(/\s+/).filter(w => w.length > 2);
-    
-    // Find words that changed
-    const originalSet = new Set(originalWords);
-    const updatedSet = new Set(updatedWords);
-    
-    const added = [...updatedSet].filter(w => !originalSet.has(w));
-    const removed = [...originalSet].filter(w => !updatedSet.has(w));
-    
-    return { 
-      added: added.slice(0, 20), // Top 20 changes
-      removed: removed.slice(0, 20) 
-    };
-  };
-
-  const differences = result ? getTextDifferences() : { added: [], removed: [] };
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900">
       <nav className="bg-black bg-opacity-30 backdrop-blur-xl border-b border-white border-opacity-10">
@@ -213,11 +236,11 @@ export default function ContentOps() {
         </div>
       </nav>
 
-      <div className="max-w-6xl mx-auto px-4 py-12">
+      <div className="max-w-7xl mx-auto px-4 py-12">
         {view === 'home' && (
           <div className="text-center">
             <h1 className="text-5xl font-bold text-white mb-4">Funnel-Aware Fact-Checker</h1>
-            <p className="text-xl text-purple-200 mb-8">Brave Search + Claude AI + HTML Preservation</p>
+            <p className="text-xl text-purple-200 mb-8">Brave Search + Claude AI + Live Editor</p>
             <button onClick={() => setView(savedConfig ? 'dashboard' : 'setup')} className="bg-gradient-to-r from-pink-500 to-purple-600 text-white px-8 py-4 rounded-xl font-bold">
               {savedConfig ? 'Dashboard →' : 'Setup →'}
             </button>
@@ -295,108 +318,36 @@ export default function ContentOps() {
               </ul>
             </div>
 
-            {/* WORD-LEVEL CHANGES */}
-            <div className="bg-white bg-opacity-10 rounded-xl p-6">
-              <h3 className="text-xl font-bold text-white mb-4">Text Changes:</h3>
-              <div className="grid grid-cols-2 gap-6">
-                {differences.removed.length > 0 && (
-                  <div>
-                    <div className="flex items-center gap-2 mb-3">
-                      <div className="w-3 h-3 rounded-full bg-red-500"></div>
-                      <span className="text-red-300 font-semibold text-sm">REMOVED</span>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {differences.removed.map((word, i) => (
-                        <span key={i} className="bg-red-500 bg-opacity-20 border border-red-500 border-opacity-40 text-red-200 px-2 py-1 rounded text-sm">
-                          {word}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                
-                {differences.added.length > 0 && (
-                  <div>
-                    <div className="flex items-center gap-2 mb-3">
-                      <div className="w-3 h-3 rounded-full bg-green-500"></div>
-                      <span className="text-green-300 font-semibold text-sm">ADDED</span>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {differences.added.map((word, i) => (
-                        <span key={i} className="bg-green-500 bg-opacity-20 border border-green-500 border-opacity-40 text-green-200 px-2 py-1 rounded text-sm">
-                          {word}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-              {differences.added.length === 0 && differences.removed.length === 0 && (
-                <p className="text-purple-300 text-sm">No significant word changes detected (only formatting/grammar fixes)</p>
-              )}
-            </div>
-
             <div className="bg-white bg-opacity-10 rounded-xl p-6">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xl font-bold text-white">Content Comparison:</h3>
-                <div className="flex gap-2">
-                  <button 
-                    onClick={() => setViewMode('side-by-side')}
-                    className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
-                      viewMode === 'side-by-side' 
-                        ? 'bg-pink-600 text-white' 
-                        : 'bg-white bg-opacity-10 text-purple-300'
-                    }`}
-                  >
-                    Side-by-Side
-                  </button>
-                  <button 
-                    onClick={() => setViewMode('updated-only')}
-                    className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
-                      viewMode === 'updated-only' 
-                        ? 'bg-pink-600 text-white' 
-                        : 'bg-white bg-opacity-10 text-purple-300'
-                    }`}
-                  >
-                    Updated Only
-                  </button>
+                <h3 className="text-xl font-bold text-white">Editable Content (Changes Highlighted)</h3>
+                <div className="flex items-center gap-2">
+                  <Edit3 className="w-5 h-5 text-green-400" />
+                  <span className="text-green-300 text-sm">Click to edit</span>
                 </div>
               </div>
+              
+              <div className="bg-amber-500 bg-opacity-10 border border-amber-500 border-opacity-30 rounded-lg p-3 mb-4">
+                <p className="text-amber-200 text-sm">
+                  <strong>Legend:</strong> <mark style={{backgroundColor: '#86efac', padding: '2px 6px', borderRadius: '3px', color: '#000'}}>Green highlight</mark> = Changed or added text
+                </p>
+              </div>
 
-              {viewMode === 'side-by-side' ? (
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <div className="bg-yellow-500 bg-opacity-20 border border-yellow-500 border-opacity-30 rounded-t-lg px-4 py-2">
-                      <p className="text-yellow-200 text-sm font-semibold">ORIGINAL</p>
-                    </div>
-                    <div className="bg-white rounded-b-lg p-6 max-h-[600px] overflow-auto">
-                      <div className="prose prose-sm max-w-none text-gray-800" style={{ fontSize: '14px' }} dangerouslySetInnerHTML={{ __html: result.originalContent }} />
-                    </div>
-                  </div>
-                  
-                  <div>
-                    <div className="bg-green-500 bg-opacity-20 border border-green-500 border-opacity-30 rounded-t-lg px-4 py-2">
-                      <p className="text-green-200 text-sm font-semibold">UPDATED</p>
-                    </div>
-                    <div className="bg-white rounded-b-lg p-6 max-h-[600px] overflow-auto">
-                      <div className="prose prose-sm max-w-none text-gray-800" style={{ fontSize: '14px' }} dangerouslySetInnerHTML={{ __html: editedContent }} />
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div>
-                  <div className="bg-green-500 bg-opacity-20 border border-green-500 border-opacity-30 rounded-t-lg px-4 py-2">
-                    <p className="text-green-200 text-sm font-semibold">UPDATED CONTENT</p>
-                  </div>
-                  <div className="bg-white rounded-b-lg p-6 max-h-[600px] overflow-auto">
-                    <div className="prose max-w-none text-gray-800" dangerouslySetInnerHTML={{ __html: editedContent }} />
-                  </div>
-                </div>
-              )}
+              <div 
+                ref={editorRef}
+                contentEditable
+                onInput={handleEditorInput}
+                className="bg-white rounded-lg p-8 min-h-[500px] max-h-[700px] overflow-auto prose prose-lg max-w-none text-gray-800 focus:outline-none focus:ring-2 focus:ring-pink-500"
+                style={{ 
+                  lineHeight: '1.8',
+                  fontSize: '16px'
+                }}
+              />
               
               <p className="text-purple-300 text-sm mt-4">
                 Original: {Math.round(result.originalContent.length/1000)}K chars • 
-                Updated: {Math.round(editedContent.length/1000)}K chars
+                Current: {Math.round(editedContent.length/1000)}K chars • 
+                <span className="text-green-300">Fully editable - your changes will be saved</span>
               </p>
             </div>
 
