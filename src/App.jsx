@@ -114,15 +114,12 @@ Return only the complete rewritten HTML content with all images, tables, widgets
 
 // IMPROVED HIGHLIGHTING LOGIC - Only highlights real content changes
 const createHighlightedHTML = (originalHTML, updatedHTML) => {
-  // Aggressive normalization for comparison
+  // ULTRA-AGGRESSIVE normalization - strip EVERYTHING except actual words
   const normalizeForComparison = (html) => {
     return html
-      .replace(/<\/?strong>/gi, '') // Remove strong tags
-      .replace(/<\/?b>/gi, '') // Remove bold tags
-      .replace(/<\/?em>/gi, '') // Remove em tags
-      .replace(/<\/?i>/gi, '') // Remove italic tags
-      .replace(/&nbsp;/g, ' ') // Replace nbsp
+      .replace(/<[^>]+>/g, ' ') // Remove ALL HTML tags
       .replace(/&[a-z]+;/gi, ' ') // Replace HTML entities
+      .replace(/[^\w\s]/g, ' ') // Remove all punctuation
       .replace(/\s+/g, ' ') // Normalize whitespace
       .trim()
       .toLowerCase(); // Case insensitive
@@ -203,30 +200,37 @@ const createHighlightedHTML = (originalHTML, updatedHTML) => {
       }
     }
     
-    // No exact match - check for fuzzy match (80% word overlap)
+    // No exact match - check for fuzzy match (95% word overlap OR less than 5 different words)
     if (normalizedUpdated.length > 20) {
       let foundSimilar = false;
-      const updatedWords = new Set(normalizedUpdated.split(/\s+/).filter(w => w.length > 3));
+      const updatedWords = normalizedUpdated.split(/\s+/).filter(w => w.length > 3);
+      const updatedWordSet = new Set(updatedWords);
       
-      if (updatedWords.size > 0) {
+      if (updatedWordSet.size > 0) {
         for (const [origNormalized, origBlocks] of originalMap.entries()) {
           const unusedBlock = origBlocks.find(b => !b.used);
           if (!unusedBlock) continue;
           
-          const origWords = new Set(origNormalized.split(/\s+/).filter(w => w.length > 3));
-          if (origWords.size === 0) continue;
+          const origWords = origNormalized.split(/\s+/).filter(w => w.length > 3);
+          const origWordSet = new Set(origWords);
+          if (origWordSet.size === 0) continue;
           
           // Count matching words
           let matchCount = 0;
-          updatedWords.forEach(word => {
-            if (origWords.has(word)) matchCount++;
+          updatedWordSet.forEach(word => {
+            if (origWordSet.has(word)) matchCount++;
           });
           
           // Calculate similarity
-          const similarity = matchCount / Math.max(updatedWords.size, origWords.size);
+          const totalWords = Math.max(updatedWordSet.size, origWordSet.size);
+          const similarity = matchCount / totalWords;
           
-          if (similarity >= 0.80) {
-            // 80%+ similar = just formatting change, don't highlight
+          // Count different words
+          const differentWords = updatedWords.filter(w => !origWordSet.has(w)).length;
+          
+          // VERY STRICT: Need 95% similarity OR less than 5 different substantive words
+          if (similarity >= 0.95 || differentWords < 5) {
+            // Just minor changes, don't highlight
             foundSimilar = true;
             unusedBlock.used = true;
             highlightedHTML += updatedBlock;
@@ -852,7 +856,7 @@ export default function ContentOps() {
       });
       setEditedContent(updatedContent);
       setShowHighlights(true);
-      setStatus({ type: 'success', message: `✅ Complete! ${data.searchesUsed} searches, ${data.claudeCalls} rewrites, ${highlighted.changesCount} content changes${linkCount > 0 ? `, ${linkCount} links preserved` : ''}` });
+      setStatus({ type: 'success', message: `✅ Analysis complete!` });
       setView('review');
       setViewMode('changes');
     } catch (error) {
@@ -1062,14 +1066,6 @@ export default function ContentOps() {
 
         {view === 'review' && result && (
           <div className="space-y-6">
-            <div className="bg-gradient-to-r from-[#0ea5e9] to-[#06b6d4] rounded-xl p-8 text-white shadow-lg">
-              <h2 className="text-3xl font-bold mb-2">✅ Analysis Complete!</h2>
-              <p className="text-blue-50">
-                {result.searchesUsed} searches • {highlightedData?.changesCount || 0} content changes detected
-                {result.linkCount > 0 && <span> • {result.linkCount} links preserved</span>}
-              </p>
-            </div>
-
             {/* Title and Meta Description Editor */}
             <div className="bg-white rounded-xl p-6 border shadow-lg">
               <h3 className="text-xl font-bold text-[#0f172a] mb-4">📋 SEO Metadata</h3>
@@ -1132,193 +1128,8 @@ export default function ContentOps() {
 
             <div className="bg-white rounded-xl p-6 border shadow-lg">
               <div className="flex items-center justify-between mb-6">
-                <h3 className="text-2xl font-bold text-[#0f172a]">📄 Content Review</h3>
-                <div className="flex gap-2">
-                  <button onClick={() => setViewMode('changes')} className={`px-4 py-2 rounded-lg text-sm font-semibold ${viewMode === 'changes' ? 'bg-[#0ea5e9] text-white' : 'bg-gray-100'}`}>✨ Diff</button>
-                  <button onClick={() => setViewMode('edit')} className={`px-4 py-2 rounded-lg text-sm font-semibold ${viewMode === 'edit' ? 'bg-[#0ea5e9] text-white' : 'bg-gray-100'}`}>✏️ Edit</button>
-                </div>
+                <h3 className="text-2xl font-bold text-[#0f172a]">📄 Content Editor</h3>
               </div>
-
-              {viewMode === 'edit' && (
-                <div className="space-y-4">
-                  <div className="flex gap-2 mb-4">
-                    <button onClick={() => setEditMode('visual')} className={`px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 ${editMode === 'visual' ? 'bg-[#0ea5e9] text-white' : 'bg-gray-100'}`}><Eye className="w-4 h-4" />Visual</button>
-                    <button onClick={() => setEditMode('html')} className={`px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 ${editMode === 'html' ? 'bg-[#0ea5e9] text-white' : 'bg-gray-100'}`}><Code className="w-4 h-4" />HTML</button>
-                  </div>
-                  {editMode === 'visual' ? (
-                    <VisualEditor content={editedContent} onChange={setEditedContent} />
-                  ) : (
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                      <div className="bg-gray-900 rounded-lg overflow-hidden">
-                        <div className="bg-gray-800 px-4 py-2"><span className="text-gray-300 text-xs font-semibold">HTML</span></div>
-                        <textarea value={editedContent} onChange={(e) => setEditedContent(e.target.value)} className="w-full h-[800px] bg-gray-900 text-gray-100 font-mono text-sm p-4 focus:outline-none resize-none" spellCheck="false" />
-                      </div>
-                      <div className="bg-white rounded-lg border overflow-hidden">
-                        <style>{`
-                          .editable-preview h1 {
-                            font-size: 2.25rem;
-                            font-weight: 700;
-                            margin: 2rem 0 1rem 0;
-                            color: #0f172a;
-                          }
-                          .editable-preview h2 {
-                            font-size: 1.875rem;
-                            font-weight: 700;
-                            margin: 1.75rem 0 1rem 0;
-                            color: #0f172a;
-                          }
-                          .editable-preview h3 {
-                            font-size: 1.5rem;
-                            font-weight: 600;
-                            margin: 1.5rem 0 0.75rem 0;
-                            color: #1e293b;
-                          }
-                          .editable-preview h4 {
-                            font-size: 1.25rem;
-                            font-weight: 600;
-                            margin: 1.25rem 0 0.5rem 0;
-                            color: #1e293b;
-                          }
-                          .editable-preview img {
-                            max-width: 100%;
-                            height: auto;
-                            display: block;
-                            margin: 1rem 0;
-                          }
-                          .editable-preview iframe {
-                            max-width: 100%;
-                            width: 100%;
-                            min-height: 400px;
-                            margin: 1.5rem 0;
-                            border: 1px solid #e5e7eb;
-                            border-radius: 8px;
-                          }
-                          .editable-preview embed,
-                          .editable-preview object {
-                            max-width: 100%;
-                            margin: 1.5rem 0;
-                          }
-                          /* Override hidden class for widget content */
-                          .editable-preview .info-widget .hidden,
-                          .editable-preview [class*="widget"] .hidden,
-                          .editable-preview [class*="-widget"] .hidden,
-                          .editable-preview [class*="w-embed"] .hidden,
-                          .editable-preview [class*="w-widget"] .hidden {
-                            display: block !important;
-                            visibility: visible !important;
-                          }
-                          /* Generic styling for ALL widget types */
-                          .editable-preview [class*="-widget"],
-                          .editable-preview [class*="widget-"] {
-                            margin: 1.5rem 0;
-                            padding: 1.5rem;
-                            border-radius: 6px;
-                          }
-                          /* Style info-widget boxes (purple/indigo) */
-                          .editable-preview .info-widget,
-                          .editable-preview [class*="info-widget"] {
-                            background-color: #f5f3ff;
-                            border-left: 4px solid #8b5cf6;
-                          }
-                          /* Style warning/caution widgets (yellow/orange) */
-                          .editable-preview .warning-widget,
-                          .editable-preview .caution-widget,
-                          .editable-preview [class*="warning-widget"],
-                          .editable-preview [class*="caution-widget"] {
-                            background-color: #fef3c7;
-                            border-left: 4px solid #f59e0b;
-                          }
-                          /* Style success/tip widgets (green) */
-                          .editable-preview .success-widget,
-                          .editable-preview .tip-widget,
-                          .editable-preview [class*="success-widget"],
-                          .editable-preview [class*="tip-widget"] {
-                            background-color: #d1fae5;
-                            border-left: 4px solid #10b981;
-                          }
-                          /* Style error/danger widgets (red) */
-                          .editable-preview .error-widget,
-                          .editable-preview .danger-widget,
-                          .editable-preview [class*="error-widget"],
-                          .editable-preview [class*="danger-widget"] {
-                            background-color: #fee2e2;
-                            border-left: 4px solid #ef4444;
-                          }
-                          /* Generic widget heading styles */
-                          .editable-preview [class*="widget-heading"],
-                          .editable-preview [class*="-widget-heading"] {
-                            font-size: 1.125rem;
-                            font-weight: 600;
-                            margin: 0 0 0.75rem 0;
-                          }
-                          /* Widget type labels */
-                          .editable-preview .widget-type,
-                          .editable-preview [class*="widget-type"] {
-                            display: inline-block;
-                            font-size: 0.875rem;
-                            font-weight: 600;
-                            text-transform: uppercase;
-                            letter-spacing: 0.05em;
-                            margin-bottom: 0.5rem;
-                          }
-                          .editable-preview [class*="widget"],
-                          .editable-preview [class*="w-embed"],
-                          .editable-preview [class*="w-widget"] {
-                            margin: 1.5rem 0;
-                            max-width: 100%;
-                          }
-                          .editable-preview table {
-                            width: 100%;
-                            border-collapse: collapse;
-                            margin: 1.5rem 0;
-                            border: 1px solid #e5e7eb;
-                          }
-                          .editable-preview th {
-                            background-color: #f3f4f6;
-                            padding: 0.75rem;
-                            border: 1px solid #e5e7eb;
-                          }
-                          .editable-preview td {
-                            padding: 0.75rem;
-                            border: 1px solid #e5e7eb;
-                          }
-                          .editable-preview p {
-                            margin: 0.75rem 0;
-                          }
-                          .editable-preview ul, .editable-preview ol {
-                            margin: 1rem 0;
-                            padding-left: 2rem;
-                          }
-                          .editable-preview ul {
-                            list-style-type: disc;
-                          }
-                          .editable-preview ol {
-                            list-style-type: decimal;
-                          }
-                          .editable-preview li {
-                            margin: 0.5rem 0;
-                            line-height: 1.7;
-                            display: list-item;
-                          }
-                          .editable-preview a {
-                            color: #0ea5e9;
-                            text-decoration: underline;
-                            cursor: pointer;
-                          }
-                          .editable-preview a:hover {
-                            color: #0284c7;
-                            text-decoration: underline;
-                          }
-                        `}</style>
-                        <div className="bg-gray-50 px-4 py-2"><span className="text-gray-700 text-xs font-semibold">Preview</span></div>
-                        <div ref={editablePreviewRef} className="editable-preview text-gray-800 overflow-y-auto p-4" contentEditable={true} suppressContentEditableWarning={true} onInput={handleEditablePreviewInput} onClick={handleContentClick} style={{ height: '800px', outline: 'none' }} />
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {viewMode === 'changes' && (
                 <div className="space-y-6">
                   <div className="flex items-center justify-between">
                     <div className="px-4 py-2 bg-blue-50 border border-blue-200 rounded-lg flex-1 mr-3">
