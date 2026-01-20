@@ -70,9 +70,20 @@ const detectBlogType = (title) => {
 const RESEARCH_PROMPT = BOFU_RESEARCH_PROMPT; // Kept for backwards compatibility
 
 const WRITING_PROMPT = `You are an expert blog rewriter focused on clarity, accuracy, and engagement.
+
 **CRITICAL WRITING RULES:**
 NEVER USE: Em-dashes, banned words, sentences over 30 words, markdown syntax
 ALWAYS USE: Contractions, active voice, short sentences, HTML bold tags (<strong> or <b>)
+
+**CRITICAL: PRESERVE ALL FORMATTING AND STRUCTURE EXACTLY**
+- Keep ALL heading tags (<h1>, <h2>, <h3>, <h4>, <h5>, <h6>) EXACTLY as they are in the original
+- Keep ALL heading hierarchy the same - do NOT change H2 to H3, or H3 to H2, etc.
+- Keep ALL heading text the same unless it contains factual errors
+- Keep ALL bold (<strong>, <b>) and italic (<em>, <i>) formatting EXACTLY as-is
+- Keep ALL paragraph breaks and spacing EXACTLY as they appear in original
+- Keep ALL list structures (<ul>, <ol>, <li>) EXACTLY as-is
+- Keep ALL class attributes, IDs, and data attributes unchanged
+
 **CRITICAL: PRESERVE ALL SPECIAL ELEMENTS - DO NOT CONVERT TO TEXT**
 - Keep ALL <iframe>, <script>, <embed>, <object>, <video>, <audio>, <canvas>, <form> tags EXACTLY as-is
 - Keep ALL widget classes (w-embed-, w-widget-, info-widget, widget-, etc.) unchanged
@@ -81,7 +92,24 @@ ALWAYS USE: Contractions, active voice, short sentences, HTML bold tags (<strong
 - Keep ALL widget structure and nested elements intact (widget-type, info-widget-heading, info-widget-content, etc.)
 - NEVER convert widgets/embeds to text - keep them as functional HTML
 - NEVER escape HTML in widgets - keep < > characters not &lt; &gt;
-Return only the complete rewritten HTML content with all images, tables, widgets, iframes, scripts, and embeds preserved EXACTLY as HTML with no modifications.`;
+
+**WHAT YOU CAN CHANGE:**
+- Fix factual errors (pricing, features, statistics, dates)
+- Remove em-dashes and replace with regular dashes or commas
+- Shorten overly long sentences (30+ words)
+- Add contractions where natural
+- Convert passive voice to active voice
+- Bold important terms using <strong> tags
+
+**WHAT YOU CANNOT CHANGE:**
+- Heading levels (H1, H2, H3, etc.)
+- Paragraph structure and breaks
+- List formatting (bullet vs numbered)
+- Any HTML structure or nesting
+- Widget or embed code
+- Image tags or attributes
+
+Return only the complete rewritten HTML content with all images, tables, widgets, iframes, scripts, embeds, and EXACT heading structure preserved with no modifications to formatting.`;
 
 // IMPROVED HIGHLIGHTING LOGIC - Only highlights real content changes
 const createHighlightedHTML = (originalHTML, updatedHTML) => {
@@ -308,6 +336,7 @@ export default function ContentOps() {
   const [savedSelection, setSavedSelection] = useState(null);
   const [blogTitle, setBlogTitle] = useState('');
   const [metaDescription, setMetaDescription] = useState('');
+  const [metaFieldName, setMetaFieldName] = useState('post-summary'); // Track which field to use
 
   useEffect(() => {
     const saved = localStorage.getItem('contentops_config');
@@ -714,7 +743,45 @@ export default function ContentOps() {
     // Auto-detect blog type from title
     const blogTitle = blog.fieldData.name;
     setBlogTitle(blogTitle);
-    setMetaDescription(blog.fieldData['post-summary'] || '');
+    
+    // Try multiple common field names for meta description and store which one worked
+    const fieldChecks = [
+      'excerpt',
+      'post-summary', 
+      'summary',
+      'meta-description',
+      'description',
+      'seo-description'
+    ];
+    
+    let metaDescriptionValue = '';
+    let detectedFieldName = 'post-summary'; // default
+    
+    for (const fieldName of fieldChecks) {
+      if (blog.fieldData[fieldName]) {
+        metaDescriptionValue = blog.fieldData[fieldName];
+        detectedFieldName = fieldName;
+        console.log(`✓ Found meta description in field: "${fieldName}"`);
+        break;
+      }
+    }
+    
+    setMetaDescription(metaDescriptionValue);
+    setMetaFieldName(detectedFieldName);
+    
+    // Debug logging to see available fields
+    console.log('=== WEBFLOW FIELD DETECTION ===');
+    console.log('All available fields:', Object.keys(blog.fieldData));
+    console.log('Field values:');
+    Object.entries(blog.fieldData).forEach(([key, value]) => {
+      if (typeof value === 'string' && value.length > 0) {
+        console.log(`  ${key}: ${value.substring(0, 50)}${value.length > 50 ? '...' : ''}`);
+      }
+    });
+    console.log('Meta description field used:', detectedFieldName);
+    console.log('Meta description value:', metaDescriptionValue ? metaDescriptionValue.substring(0, 100) : '(empty)');
+    console.log('===============================');
+    
     const blogType = detectBlogType(blogTitle);
     
     // Select appropriate research prompt based on blog type
@@ -779,27 +846,114 @@ export default function ContentOps() {
 
   const publishToWebflow = async () => {
     if (!result || !selectedBlog) return;
+    
+    // Validation
+    if (!blogTitle.trim()) {
+      setStatus({ type: 'error', message: 'Title cannot be empty' });
+      return;
+    }
+    
+    if (!editedContent.trim()) {
+      setStatus({ type: 'error', message: 'Content cannot be empty' });
+      return;
+    }
+    
     setLoading(true);
-    setStatus({ type: 'info', message: 'Publishing...' });
-    try {
-      const response = await fetch(`${BACKEND_URL}/api/webflow?collectionId=${config.collectionId}&itemId=${selectedBlog.id}`, {
-        method: 'PATCH',
-        headers: { 'Authorization': `Bearer ${config.webflowKey}`, 'Content-Type': 'application/json', 'accept': 'application/json' },
-        body: JSON.stringify({
-          fieldData: {
-            name: blogTitle,
-            'post-body': editedContent,
-            'post-summary': metaDescription
+    setStatus({ type: 'info', message: 'Publishing to Webflow...' });
+    
+    const maxRetries = 3;
+    let attempt = 0;
+    
+    while (attempt < maxRetries) {
+      try {
+        attempt++;
+        
+        if (attempt > 1) {
+          setStatus({ type: 'info', message: `Retrying... (Attempt ${attempt}/${maxRetries})` });
+          await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2s before retry
+        }
+        
+        console.log('Publishing to Webflow:', {
+          collectionId: config.collectionId,
+          itemId: selectedBlog.id,
+          titleLength: blogTitle.length,
+          contentLength: editedContent.length,
+          metaLength: metaDescription.length,
+          metaFieldName: metaFieldName
+        });
+        
+        // Create abort controller for timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+        
+        // Build fieldData with the correct meta description field name
+        const fieldData = {
+          name: blogTitle.trim(),
+          'post-body': editedContent
+        };
+        
+        // Add meta description to the correct field
+        if (metaDescription.trim()) {
+          fieldData[metaFieldName] = metaDescription.trim();
+        }
+        
+        const response = await fetch(`${BACKEND_URL}/api/webflow?collectionId=${config.collectionId}&itemId=${selectedBlog.id}`, {
+          method: 'PATCH',
+          headers: { 
+            'Authorization': `Bearer ${config.webflowKey}`, 
+            'Content-Type': 'application/json', 
+            'accept': 'application/json' 
+          },
+          body: JSON.stringify({ fieldData }),
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        const responseData = await response.json();
+        console.log('Webflow response:', responseData);
+        
+        if (!response.ok) {
+          throw new Error(responseData.error || responseData.message || `HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        // Success!
+        setStatus({ type: 'success', message: '✅ Published successfully!' });
+        setView('success');
+        setLoading(false);
+        return;
+        
+      } catch (error) {
+        console.error(`Publish attempt ${attempt} failed:`, error);
+        
+        // Handle timeout specifically
+        if (error.name === 'AbortError') {
+          console.error('Request timed out after 30 seconds');
+          if (attempt === maxRetries) {
+            setStatus({ 
+              type: 'error', 
+              message: 'Request timed out. Your content might be too large or Webflow is slow to respond.' 
+            });
+            setLoading(false);
+            return;
           }
-        })
-      });
-      if (!response.ok) throw new Error('Failed to publish');
-      setStatus({ type: 'success', message: '✅ Published successfully!' });
-      setView('success');
-    } catch (error) {
-      setStatus({ type: 'error', message: error.message });
-    } finally {
-      setLoading(false);
+          continue;
+        }
+        
+        if (attempt === maxRetries) {
+          // Final attempt failed
+          const errorMessage = error.message || 'Unknown error occurred';
+          setStatus({ 
+            type: 'error', 
+            message: `Failed to publish after ${maxRetries} attempts: ${errorMessage}` 
+          });
+          setLoading(false);
+          return;
+        }
+        
+        // Continue to next retry
+        continue;
+      }
     }
   };
 
@@ -911,7 +1065,12 @@ export default function ContentOps() {
                   <p className="text-xs text-gray-500 mt-1">{blogTitle.length} characters</p>
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Meta Description</label>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-sm font-semibold text-gray-700">Meta Description</label>
+                    <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
+                      Field: {metaFieldName}
+                    </span>
+                  </div>
                   <textarea 
                     value={metaDescription} 
                     onChange={(e) => setMetaDescription(e.target.value)}
@@ -920,6 +1079,32 @@ export default function ContentOps() {
                     placeholder="Brief description for search engines"
                   />
                   <p className="text-xs text-gray-500 mt-1">{metaDescription.length} characters</p>
+                  {!metaDescription && (
+                    <div className="mt-2 p-3 bg-yellow-50 border border-yellow-200 rounded">
+                      <p className="text-xs text-yellow-800 font-semibold mb-1">⚠️ No meta description found</p>
+                      <p className="text-xs text-yellow-700 mb-2">
+                        The field "<strong>{metaFieldName}</strong>" is empty in Webflow. 
+                        Open browser console (F12) to see all available fields or add a description manually here.
+                      </p>
+                      <button 
+                        onClick={() => {
+                          console.log('=== MANUAL FIELD CHECK ===');
+                          console.log('Available fields:', Object.keys(selectedBlog.fieldData));
+                          console.log('Current field being used:', metaFieldName);
+                          console.log('All field values:');
+                          Object.entries(selectedBlog.fieldData).forEach(([key, value]) => {
+                            if (typeof value === 'string') {
+                              console.log(`  ${key}: ${value.substring(0, 100)}${value.length > 100 ? '...' : ''}`);
+                            }
+                          });
+                          alert('Check browser console (F12) for field details');
+                        }}
+                        className="text-xs bg-yellow-600 text-white px-3 py-1 rounded hover:bg-yellow-700"
+                      >
+                        📋 Show All Fields in Console
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1336,8 +1521,56 @@ export default function ContentOps() {
             
             <div className="flex gap-4">
               <button onClick={() => setView('dashboard')} className="flex-1 bg-gray-100 text-gray-700 py-4 rounded-lg font-semibold hover:bg-gray-200">← Cancel</button>
-              <button onClick={publishToWebflow} disabled={loading} className="flex-2 bg-[#0ea5e9] text-white py-4 px-8 rounded-lg font-semibold hover:bg-[#0284c7] disabled:opacity-50 flex items-center gap-2 shadow-lg">{loading ? <><Loader className="w-5 h-5 animate-spin" />Publishing...</> : <><CheckCircle className="w-5 h-5" />Publish</>}</button>
+              <button 
+                onClick={async () => {
+                  try {
+                    setStatus({ type: 'info', message: 'Testing connection...' });
+                    const response = await fetch(`${BACKEND_URL}/api/webflow?collectionId=${config.collectionId}&itemId=${selectedBlog.id}`, {
+                      headers: { 'Authorization': `Bearer ${config.webflowKey}`, 'accept': 'application/json' }
+                    });
+                    if (response.ok) {
+                      setStatus({ type: 'success', message: '✅ Connection OK! Ready to publish.' });
+                    } else {
+                      setStatus({ type: 'error', message: '❌ Connection failed. Check API token.' });
+                    }
+                  } catch (err) {
+                    setStatus({ type: 'error', message: '❌ Network error: ' + err.message });
+                  }
+                }}
+                className="flex-1 bg-gray-600 text-white py-4 rounded-lg font-semibold hover:bg-gray-700"
+              >
+                Test Connection
+              </button>
+              <button onClick={publishToWebflow} disabled={loading} className="flex-2 bg-[#0ea5e9] text-white py-4 px-8 rounded-lg font-semibold hover:bg-[#0284c7] disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg">{loading ? <><Loader className="w-5 h-5 animate-spin" />{status.message.includes('Retry') ? status.message : 'Publishing...'}</> : <><CheckCircle className="w-5 h-5" />Publish to Webflow</>}</button>
             </div>
+            
+            {/* Error/Status Display */}
+            {status.message && status.type === 'error' && (
+              <div className="bg-red-50 border-2 border-red-200 rounded-xl p-6">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <h4 className="font-bold text-red-900 mb-2">Publishing Failed</h4>
+                    <p className="text-red-800 text-sm mb-3">{status.message}</p>
+                    <div className="bg-white border border-red-200 rounded-lg p-3 text-xs">
+                      <p className="font-semibold text-red-900 mb-2">Troubleshooting:</p>
+                      <ul className="list-disc list-inside space-y-1 text-red-700">
+                        <li>Check your Webflow API token is valid</li>
+                        <li>Verify the blog post exists in Webflow</li>
+                        <li>Try refreshing and analyzing the blog again</li>
+                        <li>Content might be too large (over 500KB)</li>
+                      </ul>
+                    </div>
+                    <button 
+                      onClick={publishToWebflow} 
+                      className="mt-4 bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-red-700"
+                    >
+                      Try Again
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
