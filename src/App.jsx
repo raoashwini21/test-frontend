@@ -228,8 +228,8 @@ const createHighlightedHTML = (originalHTML, updatedHTML) => {
           // Count different words
           const differentWords = updatedWords.filter(w => !origWordSet.has(w)).length;
           
-          // VERY STRICT: Need 95% similarity OR less than 5 different substantive words
-          if (similarity >= 0.95 || differentWords < 5) {
+          // STRICT: Need 95% similarity OR less than 3 different substantive words
+          if (similarity >= 0.95 || differentWords < 3) {
             // Just minor changes, don't highlight
             foundSimilar = true;
             unusedBlock.used = true;
