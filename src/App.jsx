@@ -80,6 +80,7 @@ ALWAYS USE: Contractions, active voice, short sentences, HTML bold tags (<strong
 - Keep ALL heading hierarchy the same - do NOT change H2 to H3, or H3 to H2, etc.
 - Keep ALL heading text the same unless it contains factual errors
 - Keep ALL bold (<strong>, <b>) and italic (<em>, <i>) formatting EXACTLY as-is
+- Keep ALL links (<a> tags) EXACTLY as-is - preserve href, target, and all attributes
 - Keep ALL paragraph breaks and spacing EXACTLY as they appear in original
 - Keep ALL list structures (<ul>, <ol>, <li>) EXACTLY as-is
 - Keep ALL class attributes, IDs, and data attributes unchanged
@@ -800,6 +801,16 @@ export default function ContentOps() {
     
     setStatus({ type: 'info', message: 'Smart analysis in progress (15-20s)...' });
     const fullOriginalContent = blog.fieldData['post-body'] || '';
+    
+    // Debug: Check for links in original content
+    const linkMatches = fullOriginalContent.match(/<a\s+[^>]*href=/gi);
+    console.log('=== LINK DETECTION ===');
+    console.log(`Found ${linkMatches ? linkMatches.length : 0} links in original Webflow content`);
+    if (linkMatches && linkMatches.length > 0) {
+      console.log('Sample links:', fullOriginalContent.match(/<a\s+[^>]*>.*?<\/a>/gi)?.slice(0, 3));
+    }
+    console.log('======================');
+    
     try {
       const response = await fetch(`${BACKEND_URL}/api/analyze`, {
         method: 'POST',
@@ -820,6 +831,12 @@ export default function ContentOps() {
       const data = await response.json();
       let updatedContent = data.content || fullOriginalContent;
       updatedContent = updatedContent.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      
+      // Count links in updated content
+      const updatedLinkMatches = updatedContent.match(/<a\s+[^>]*href=/gi);
+      const linkCount = updatedLinkMatches ? updatedLinkMatches.length : 0;
+      console.log(`Links preserved in updated content: ${linkCount}`);
+      
       const highlighted = createHighlightedHTML(fullOriginalContent, updatedContent);
       setHighlightedData(highlighted);
       setResult({
@@ -830,11 +847,12 @@ export default function ContentOps() {
         content: updatedContent,
         originalContent: fullOriginalContent,
         duration: data.duration || 0,
-        blogType: blogType
+        blogType: blogType,
+        linkCount: linkCount
       });
       setEditedContent(updatedContent);
       setShowHighlights(true);
-      setStatus({ type: 'success', message: `✅ Complete! ${data.searchesUsed} searches, ${data.claudeCalls} rewrites, ${highlighted.changesCount} content changes` });
+      setStatus({ type: 'success', message: `✅ Complete! ${data.searchesUsed} searches, ${data.claudeCalls} rewrites, ${highlighted.changesCount} content changes${linkCount > 0 ? `, ${linkCount} links preserved` : ''}` });
       setView('review');
       setViewMode('changes');
     } catch (error) {
@@ -1046,7 +1064,10 @@ export default function ContentOps() {
           <div className="space-y-6">
             <div className="bg-gradient-to-r from-[#0ea5e9] to-[#06b6d4] rounded-xl p-8 text-white shadow-lg">
               <h2 className="text-3xl font-bold mb-2">✅ Analysis Complete!</h2>
-              <p className="text-blue-50">{result.searchesUsed} searches • {highlightedData?.changesCount || 0} content changes detected</p>
+              <p className="text-blue-50">
+                {result.searchesUsed} searches • {highlightedData?.changesCount || 0} content changes detected
+                {result.linkCount > 0 && <span> • {result.linkCount} links preserved</span>}
+              </p>
             </div>
 
             {/* Title and Meta Description Editor */}
@@ -1279,6 +1300,15 @@ export default function ContentOps() {
                             line-height: 1.7;
                             display: list-item;
                           }
+                          .editable-preview a {
+                            color: #0ea5e9;
+                            text-decoration: underline;
+                            cursor: pointer;
+                          }
+                          .editable-preview a:hover {
+                            color: #0284c7;
+                            text-decoration: underline;
+                          }
                         `}</style>
                         <div className="bg-gray-50 px-4 py-2"><span className="text-gray-700 text-xs font-semibold">Preview</span></div>
                         <div ref={editablePreviewRef} className="editable-preview text-gray-800 overflow-y-auto p-4" contentEditable={true} suppressContentEditableWarning={true} onInput={handleEditablePreviewInput} onClick={handleContentClick} style={{ height: '800px', outline: 'none' }} />
@@ -1496,22 +1526,36 @@ export default function ContentOps() {
                         line-height: 1.7;
                         display: list-item;
                       }
+                      .blog-content a {
+                        color: #0ea5e9;
+                        text-decoration: underline;
+                        cursor: pointer;
+                      }
+                      .blog-content a:hover {
+                        color: #0284c7;
+                        text-decoration: underline;
+                      }
                     `}</style>
                     <div className="text-[#0ea5e9] text-sm font-bold mb-2">📝 EDITABLE CONTENT</div>
-                    <div className="flex items-center gap-2 mb-3 p-3 bg-gray-50 border rounded-lg flex-wrap">
-                      <button onClick={() => formatText('bold')} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 font-bold text-sm" title="Bold">B</button>
-                      <button onClick={() => formatText('italic')} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 italic text-sm" title="Italic">I</button>
-                      <div className="w-px h-6 bg-gray-300"></div>
-                      <button onClick={() => formatHeading(1)} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm font-bold" title="Heading 1">H1</button>
-                      <button onClick={() => formatHeading(2)} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm font-bold" title="Heading 2">H2</button>
-                      <button onClick={() => formatHeading(3)} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Heading 3">H3</button>
-                      <button onClick={() => formatHeading(4)} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Heading 4">H4</button>
-                      <div className="w-px h-6 bg-gray-300"></div>
-                      <button onClick={() => formatList('bullet')} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Bullet List">• List</button>
-                      <button onClick={() => formatList('numbered')} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Numbered List">1. List</button>
-                      <div className="w-px h-6 bg-gray-300"></div>
-                      <button onClick={insertLink} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Add Link">🔗</button>
-                      <button onClick={insertImage} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Add Image">🖼️</button>
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2 p-3 bg-gray-50 border rounded-lg flex-wrap flex-1">
+                        <button onClick={() => formatText('bold')} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 font-bold text-sm" title="Bold">B</button>
+                        <button onClick={() => formatText('italic')} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 italic text-sm" title="Italic">I</button>
+                        <div className="w-px h-6 bg-gray-300"></div>
+                        <button onClick={() => formatHeading(1)} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm font-bold" title="Heading 1">H1</button>
+                        <button onClick={() => formatHeading(2)} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm font-bold" title="Heading 2">H2</button>
+                        <button onClick={() => formatHeading(3)} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Heading 3">H3</button>
+                        <button onClick={() => formatHeading(4)} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Heading 4">H4</button>
+                        <div className="w-px h-6 bg-gray-300"></div>
+                        <button onClick={() => formatList('bullet')} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Bullet List">• List</button>
+                        <button onClick={() => formatList('numbered')} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Numbered List">1. List</button>
+                        <div className="w-px h-6 bg-gray-300"></div>
+                        <button onClick={insertLink} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Add Link">🔗</button>
+                        <button onClick={insertImage} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Add Image">🖼️</button>
+                      </div>
+                      <div className="ml-3 px-3 py-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-700 whitespace-nowrap">
+                        💡 Tip: Ctrl+Click links to open
+                      </div>
                     </div>
                     <div ref={afterViewRef} className="blog-content text-gray-800 overflow-y-auto bg-white rounded-lg p-6 min-h-[600px]" contentEditable={true} suppressContentEditableWarning={true} onInput={handleAfterViewInput} onClick={handleContentClick} style={{ maxHeight: '800px', outline: 'none', cursor: 'text' }} />
                   </div>
