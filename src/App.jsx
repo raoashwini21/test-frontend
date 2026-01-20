@@ -306,6 +306,8 @@ export default function ContentOps() {
   const [imageUrl, setImageUrl] = useState('');
   const [imageFile, setImageFile] = useState(null);
   const [savedSelection, setSavedSelection] = useState(null);
+  const [blogTitle, setBlogTitle] = useState('');
+  const [metaDescription, setMetaDescription] = useState('');
 
   useEffect(() => {
     const saved = localStorage.getItem('contentops_config');
@@ -438,6 +440,48 @@ export default function ContentOps() {
     setEditedContent(afterViewRef.current.innerHTML);
   };
 
+  const formatList = (type) => {
+    if (!afterViewRef.current) return;
+    const selection = window.getSelection();
+    if (!selection.rangeCount) return;
+    
+    const range = selection.getRangeAt(0);
+    let block = range.startContainer;
+    
+    // Find the nearest block element
+    while (block && block !== afterViewRef.current) {
+      if (block.nodeType === Node.ELEMENT_NODE && 
+          ['P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI'].includes(block.tagName)) {
+        break;
+      }
+      block = block.parentNode;
+    }
+    
+    if (!block || block === afterViewRef.current) return;
+    
+    // Check if already in a list
+    const parentList = block.closest('ul, ol');
+    if (parentList) {
+      // Already in a list - unwrap it
+      const fragment = document.createDocumentFragment();
+      Array.from(parentList.children).forEach(li => {
+        const p = document.createElement('p');
+        p.innerHTML = li.innerHTML;
+        fragment.appendChild(p);
+      });
+      parentList.parentNode.replaceChild(fragment, parentList);
+    } else {
+      // Create new list
+      const listElement = document.createElement(type === 'bullet' ? 'ul' : 'ol');
+      const li = document.createElement('li');
+      li.innerHTML = block.innerHTML;
+      listElement.appendChild(li);
+      block.parentNode.replaceChild(listElement, block);
+    }
+    
+    setEditedContent(afterViewRef.current.innerHTML);
+  };
+
   const insertLink = () => {
     const selection = window.getSelection();
     if (selection.rangeCount > 0) {
@@ -567,7 +611,12 @@ export default function ContentOps() {
     const images = doc.querySelectorAll('img');
     if (images[imageAltModal.index]) {
       images[imageAltModal.index].setAttribute('alt', imageAltModal.currentAlt);
-      setEditedContent(doc.body.innerHTML);
+      const newContent = doc.body.innerHTML;
+      setEditedContent(newContent);
+      // Update the DOM immediately
+      if (afterViewRef.current) {
+        afterViewRef.current.innerHTML = newContent;
+      }
     }
     setImageAltModal({ show: false, src: '', currentAlt: '', index: -1 });
   };
@@ -664,6 +713,8 @@ export default function ContentOps() {
     
     // Auto-detect blog type from title
     const blogTitle = blog.fieldData.name;
+    setBlogTitle(blogTitle);
+    setMetaDescription(blog.fieldData['post-summary'] || '');
     const blogType = detectBlogType(blogTitle);
     
     // Select appropriate research prompt based on blog type
@@ -736,9 +787,9 @@ export default function ContentOps() {
         headers: { 'Authorization': `Bearer ${config.webflowKey}`, 'Content-Type': 'application/json', 'accept': 'application/json' },
         body: JSON.stringify({
           fieldData: {
-            name: selectedBlog.fieldData.name,
+            name: blogTitle,
             'post-body': editedContent,
-            'post-summary': selectedBlog.fieldData['post-summary']
+            'post-summary': metaDescription
           }
         })
       });
@@ -842,6 +893,35 @@ export default function ContentOps() {
             <div className="bg-gradient-to-r from-[#0ea5e9] to-[#06b6d4] rounded-xl p-8 text-white shadow-lg">
               <h2 className="text-3xl font-bold mb-2">✅ Analysis Complete!</h2>
               <p className="text-blue-50">{result.searchesUsed} searches • {highlightedData?.changesCount || 0} content changes detected</p>
+            </div>
+
+            {/* Title and Meta Description Editor */}
+            <div className="bg-white rounded-xl p-6 border shadow-lg">
+              <h3 className="text-xl font-bold text-[#0f172a] mb-4">📋 SEO Metadata</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Title</label>
+                  <input 
+                    type="text" 
+                    value={blogTitle} 
+                    onChange={(e) => setBlogTitle(e.target.value)}
+                    className="w-full bg-gray-50 border rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#0ea5e9]"
+                    placeholder="Blog post title"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">{blogTitle.length} characters</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Meta Description</label>
+                  <textarea 
+                    value={metaDescription} 
+                    onChange={(e) => setMetaDescription(e.target.value)}
+                    className="w-full bg-gray-50 border rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#0ea5e9] resize-none"
+                    rows="3"
+                    placeholder="Brief description for search engines"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">{metaDescription.length} characters</p>
+                </div>
+              </div>
             </div>
 
             <div className="bg-white rounded-xl p-6 border shadow-lg">
@@ -998,6 +1078,21 @@ export default function ContentOps() {
                           }
                           .editable-preview p {
                             margin: 0.75rem 0;
+                          }
+                          .editable-preview ul, .editable-preview ol {
+                            margin: 1rem 0;
+                            padding-left: 2rem;
+                          }
+                          .editable-preview ul {
+                            list-style-type: disc;
+                          }
+                          .editable-preview ol {
+                            list-style-type: decimal;
+                          }
+                          .editable-preview li {
+                            margin: 0.5rem 0;
+                            line-height: 1.7;
+                            display: list-item;
                           }
                         `}</style>
                         <div className="bg-gray-50 px-4 py-2"><span className="text-gray-700 text-xs font-semibold">Preview</span></div>
@@ -1205,9 +1300,16 @@ export default function ContentOps() {
                         margin: 1rem 0;
                         padding-left: 2rem;
                       }
+                      .blog-content ul {
+                        list-style-type: disc;
+                      }
+                      .blog-content ol {
+                        list-style-type: decimal;
+                      }
                       .blog-content li {
                         margin: 0.5rem 0;
                         line-height: 1.7;
+                        display: list-item;
                       }
                     `}</style>
                     <div className="text-[#0ea5e9] text-sm font-bold mb-2">📝 EDITABLE CONTENT</div>
@@ -1219,6 +1321,9 @@ export default function ContentOps() {
                       <button onClick={() => formatHeading(2)} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm font-bold" title="Heading 2">H2</button>
                       <button onClick={() => formatHeading(3)} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Heading 3">H3</button>
                       <button onClick={() => formatHeading(4)} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Heading 4">H4</button>
+                      <div className="w-px h-6 bg-gray-300"></div>
+                      <button onClick={() => formatList('bullet')} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Bullet List">• List</button>
+                      <button onClick={() => formatList('numbered')} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Numbered List">1. List</button>
                       <div className="w-px h-6 bg-gray-300"></div>
                       <button onClick={insertLink} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Add Link">🔗</button>
                       <button onClick={insertImage} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Add Image">🖼️</button>
