@@ -317,7 +317,12 @@ function VisualEditor({ content, onChange }) {
 
 export default function ContentOps() {
   const [view, setView] = useState('home');
-  const [config, setConfig] = useState({ anthropicKey: '', braveKey: '', webflowKey: '', collectionId: '' });
+  const [config, setConfig] = useState({ 
+    anthropicKey: '', 
+    braveKey: '', 
+    webflowKey: '', 
+    collectionId: '' 
+  });
   const [savedConfig, setSavedConfig] = useState(null);
   const [blogs, setBlogs] = useState([]);
   const [selectedBlog, setSelectedBlog] = useState(null);
@@ -1010,7 +1015,7 @@ export default function ContentOps() {
                 <span className="text-[#0ea5e9] text-sm font-semibold">Powered by Brave Search + Claude AI</span>
               </div>
               <h1 className="text-6xl font-bold text-[#0f172a] mb-4">Smart Content<br /><span className="text-[#0ea5e9]">Fact-Checking</span></h1>
-              <p className="text-xl text-gray-600">Pure Brave research • AI-powered rewrites • Full blog diff view</p>
+              <p className="text-xl text-gray-600">Brave Search • AI-powered rewrites • Full blog diff view</p>
             </div>
             <button onClick={() => setView(savedConfig ? 'dashboard' : 'setup')} className="bg-[#0ea5e9] text-white px-10 py-4 rounded-lg text-lg font-bold hover:bg-[#0284c7] shadow-lg">
               {savedConfig ? 'Go to Dashboard →' : 'Get Started →'}
@@ -1024,7 +1029,9 @@ export default function ContentOps() {
               <h2 className="text-3xl font-bold text-[#0f172a] mb-6">Configuration</h2>
               <div className="space-y-4">
                 <div><label className="block text-sm font-semibold mb-2">Claude API Key</label><input type="password" value={config.anthropicKey} onChange={(e) => setConfig({...config, anthropicKey: e.target.value})} placeholder="sk-ant-..." className="w-full bg-gray-50 border rounded px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#0ea5e9]" /></div>
+                
                 <div><label className="block text-sm font-semibold mb-2">Brave Search API Key</label><input type="password" value={config.braveKey} onChange={(e) => setConfig({...config, braveKey: e.target.value})} placeholder="BSA..." className="w-full bg-gray-50 border rounded px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#0ea5e9]" /></div>
+                
                 <div><label className="block text-sm font-semibold mb-2">Webflow API Token</label><input type="password" value={config.webflowKey} onChange={(e) => setConfig({...config, webflowKey: e.target.value})} placeholder="Token" className="w-full bg-gray-50 border rounded px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#0ea5e9]" /></div>
                 <div><label className="block text-sm font-semibold mb-2">Collection ID</label><input type="text" value={config.collectionId} onChange={(e) => setConfig({...config, collectionId: e.target.value})} placeholder="From Webflow CMS" className="w-full bg-gray-50 border rounded px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#0ea5e9]" /></div>
                 <button onClick={saveConfig} disabled={loading} className="w-full bg-[#0ea5e9] text-white py-3 rounded-lg font-semibold hover:bg-[#0284c7] disabled:opacity-50">{loading ? 'Saving...' : 'Save & Continue'}</button>
