@@ -1436,27 +1436,7 @@ export default function ContentOps() {
             
             <div className="flex gap-4">
               <button onClick={() => setView('dashboard')} className="flex-1 bg-gray-100 text-gray-700 py-4 rounded-lg font-semibold hover:bg-gray-200">← Cancel</button>
-              <button 
-                onClick={async () => {
-                  try {
-                    setStatus({ type: 'info', message: 'Testing connection...' });
-                    const response = await fetch(`${BACKEND_URL}/api/webflow?collectionId=${config.collectionId}&itemId=${selectedBlog.id}`, {
-                      headers: { 'Authorization': `Bearer ${config.webflowKey}`, 'accept': 'application/json' }
-                    });
-                    if (response.ok) {
-                      setStatus({ type: 'success', message: '✅ Connection OK! Ready to publish.' });
-                    } else {
-                      setStatus({ type: 'error', message: '❌ Connection failed. Check API token.' });
-                    }
-                  } catch (err) {
-                    setStatus({ type: 'error', message: '❌ Network error: ' + err.message });
-                  }
-                }}
-                className="flex-1 bg-gray-600 text-white py-4 rounded-lg font-semibold hover:bg-gray-700"
-              >
-                Test Connection
-              </button>
-              <button onClick={publishToWebflow} disabled={loading} className="flex-2 bg-[#0ea5e9] text-white py-4 px-8 rounded-lg font-semibold hover:bg-[#0284c7] disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg">{loading ? <><Loader className="w-5 h-5 animate-spin" />{status.message.includes('Retry') ? status.message : 'Publishing...'}</> : <><CheckCircle className="w-5 h-5" />Publish to Webflow</>}</button>
+              <button onClick={publishToWebflow} disabled={loading} className="flex-1 bg-[#0ea5e9] text-white py-4 px-8 rounded-lg font-semibold hover:bg-[#0284c7] disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg">{loading ? <><Loader className="w-5 h-5 animate-spin" />{status.message.includes('Retry') ? status.message : 'Publishing...'}</> : <><CheckCircle className="w-5 h-5" />Publish to Webflow</>}</button>
             </div>
             
             {/* Error/Status Display */}
