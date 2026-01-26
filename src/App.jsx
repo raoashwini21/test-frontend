@@ -1431,7 +1431,7 @@ export default function ContentOps() {
                     <div ref={afterViewRef} className="blog-content text-gray-800 overflow-y-auto bg-white rounded-lg p-6 min-h-[600px]" contentEditable={true} suppressContentEditableWarning={true} onInput={handleAfterViewInput} onClick={handleContentClick} style={{ maxHeight: '800px', outline: 'none', cursor: 'text' }} />
                   </div>
                 </div>
-              )}
+            </div>
             </div>
             
             <div className="flex gap-4">
