@@ -1432,7 +1432,6 @@ export default function ContentOps() {
                   </div>
                 </div>
             </div>
-            </div>
             
             <div className="flex gap-4">
               <button onClick={() => setView('dashboard')} className="flex-1 bg-gray-100 text-gray-700 py-4 rounded-lg font-semibold hover:bg-gray-200">← Cancel</button>
