@@ -997,6 +997,33 @@ export default function ContentOps() {
   }
 };
 
+  // Detect which field contains the meta description
+  const detectMetaDescriptionField = (fieldData) => {
+    const fieldChecks = [
+      'excerpt',
+      'post-summary', 
+      'summary',
+      'meta-description',
+      'description',
+      'seo-description'
+    ];
+    
+    for (const fieldName of fieldChecks) {
+      if (fieldData[fieldName]) {
+        console.log(`✓ Found meta description in field: "${fieldName}"`);
+        return {
+          fieldName: fieldName,
+          value: fieldData[fieldName]
+        };
+      }
+    }
+    
+    // Default if nothing found
+    return {
+      fieldName: 'post-summary',
+      value: ''
+    };
+  };
 
   // Open blog for editing without analysis (FREE - no credits)
   const openBlogForEditing = (blog) => {
@@ -1006,9 +1033,9 @@ export default function ContentOps() {
     setBlogTitle(blog.fieldData.name || '');
     
     // Detect meta description field
-    const detectedField = detectMetaDescriptionField(blog.fieldData);
-    setMetaFieldName(detectedField);
-    setMetaDescription(blog.fieldData[detectedField] || '');
+    const detected = detectMetaDescriptionField(blog.fieldData);
+    setMetaFieldName(detected.fieldName);
+    setMetaDescription(detected.value);
     
     // Set content directly without analysis
     const content = blog.fieldData['post-body'] || '';
@@ -1037,30 +1064,10 @@ export default function ContentOps() {
     const blogTitle = blog.fieldData.name;
     setBlogTitle(blogTitle);
     
-    // Try multiple common field names for meta description and store which one worked
-    const fieldChecks = [
-      'excerpt',
-      'post-summary', 
-      'summary',
-      'meta-description',
-      'description',
-      'seo-description'
-    ];
-    
-    let metaDescriptionValue = '';
-    let detectedFieldName = 'post-summary'; // default
-    
-    for (const fieldName of fieldChecks) {
-      if (blog.fieldData[fieldName]) {
-        metaDescriptionValue = blog.fieldData[fieldName];
-        detectedFieldName = fieldName;
-        console.log(`✓ Found meta description in field: "${fieldName}"`);
-        break;
-      }
-    }
-    
-    setMetaDescription(metaDescriptionValue);
-    setMetaFieldName(detectedFieldName);
+    // Detect meta description field
+    const detected = detectMetaDescriptionField(blog.fieldData);
+    setMetaDescription(detected.value);
+    setMetaFieldName(detected.fieldName);
     
     // Debug logging to see available fields
     console.log('=== WEBFLOW FIELD DETECTION ===');
@@ -1071,8 +1078,8 @@ export default function ContentOps() {
         console.log(`  ${key}: ${value.substring(0, 50)}${value.length > 50 ? '...' : ''}`);
       }
     });
-    console.log('Meta description field used:', detectedFieldName);
-    console.log('Meta description value:', metaDescriptionValue ? metaDescriptionValue.substring(0, 100) : '(empty)');
+    console.log('Meta description field used:', detected.fieldName);
+    console.log('Meta description value:', detected.value ? detected.value.substring(0, 100) : '(empty)');
     console.log('===============================');
     
     const blogType = detectBlogType(blogTitle);
