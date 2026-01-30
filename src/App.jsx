@@ -998,6 +998,37 @@ export default function ContentOps() {
 };
 
 
+  // Open blog for editing without analysis (FREE - no credits)
+  const openBlogForEditing = (blog) => {
+    console.log('Opening blog for quick editing (no analysis):', blog.fieldData.name);
+    
+    setSelectedBlog(blog);
+    setBlogTitle(blog.fieldData.name || '');
+    
+    // Detect meta description field
+    const detectedField = detectMetaDescriptionField(blog.fieldData);
+    setMetaFieldName(detectedField);
+    setMetaDescription(blog.fieldData[detectedField] || '');
+    
+    // Set content directly without analysis
+    const content = blog.fieldData['post-body'] || '';
+    setEditedContent(content);
+    
+    // Create a mock result object (no analysis, just original content)
+    setResult({
+      content: content,
+      changes: [],
+      searchesUsed: 0,
+      claudeCalls: 0
+    });
+    
+    setView('editor');
+    setStatus({ 
+      type: 'info', 
+      message: '📝 Opened for editing. Click "Publish to Webflow" to save changes (no credits needed for formatting fixes).' 
+    });
+  };
+
   const analyzeBlog = async (blog) => {
     setSelectedBlog(blog);
     setLoading(true);
@@ -1410,7 +1441,22 @@ export default function ContentOps() {
                   <div key={blog.id} className="bg-white rounded-xl p-6 border shadow-sm hover:shadow-md transition-all">
                     <h3 className="font-semibold text-[#0f172a] mb-2 line-clamp-2">{blog.fieldData.name}</h3>
                     <p className="text-sm text-gray-600 mb-4 line-clamp-3">{blog.fieldData['post-summary'] || 'No description'}</p>
-                    <button onClick={() => analyzeBlog(blog)} disabled={loading} className="w-full bg-[#0ea5e9] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#0284c7] disabled:opacity-50">{loading && selectedBlog?.id === blog.id ? <Loader className="w-4 h-4 animate-spin mx-auto" /> : '⚡ Smart Check'}</button>
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={() => openBlogForEditing(blog)} 
+                        disabled={loading} 
+                        className="flex-1 bg-gray-100 text-gray-700 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-gray-200 disabled:opacity-50 border border-gray-300"
+                      >
+                        📝 Quick Edit
+                      </button>
+                      <button 
+                        onClick={() => analyzeBlog(blog)} 
+                        disabled={loading} 
+                        className="flex-1 bg-[#0ea5e9] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#0284c7] disabled:opacity-50"
+                      >
+                        {loading && selectedBlog?.id === blog.id ? <Loader className="w-4 h-4 animate-spin mx-auto" /> : '⚡ Smart Check'}
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
