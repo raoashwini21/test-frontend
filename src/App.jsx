@@ -1240,6 +1240,57 @@ export default function ContentOps() {
     return container.innerHTML;
   };
 
+  // Validate and clean images before publishing
+  const validateAndCleanImages = (html) => {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(`<div>${html}</div>`, 'text/html');
+    const container = doc.body.firstChild;
+    
+    const images = container.querySelectorAll('img');
+    const problematicImages = [];
+    
+    images.forEach((img, index) => {
+      const src = img.getAttribute('src');
+      
+      // Check for problematic patterns
+      if (src) {
+        // Check if src looks corrupted or has wrong extension
+        if (src.includes('application/xml') || 
+            src.endsWith('.xml') || 
+            src.includes('text/html') ||
+            !src.match(/\.(jpg|jpeg|png|gif|webp|svg)(\?|$)/i)) {
+          
+          console.warn(`⚠️ Potentially problematic image found:`, src.substring(0, 100));
+          problematicImages.push({
+            index: index + 1,
+            src: src.substring(0, 100) + '...',
+            alt: img.getAttribute('alt') || '(no alt text)'
+          });
+        }
+      }
+    });
+    
+    if (problematicImages.length > 0) {
+      console.error('⚠️ Found problematic images that may cause publishing to fail:');
+      problematicImages.forEach(img => {
+        console.error(`  Image ${img.index}: ${img.alt}`);
+        console.error(`    URL: ${img.src}`);
+      });
+      
+      return {
+        valid: false,
+        issues: problematicImages,
+        html: container.innerHTML
+      };
+    }
+    
+    return {
+      valid: true,
+      issues: [],
+      html: container.innerHTML
+    };
+  };
+
   const publishToWebflow = async () => {
     if (!result || !selectedBlog) return;
     
@@ -1278,8 +1329,20 @@ export default function ContentOps() {
           metaFieldName: metaFieldName
         });
         
+        // Validate images first
+        const imageValidation = validateAndCleanImages(editedContent);
+        
+        if (!imageValidation.valid) {
+          setLoading(false);
+          setStatus({ 
+            type: 'error', 
+            message: `⚠️ Found ${imageValidation.issues.length} problematic image(s) that may cause publishing to fail. Check console for details. Remove or replace these images and try again.`
+          });
+          return; // Stop publishing
+        }
+        
         // Sanitize lists before publishing
-        const sanitizedContent = sanitizeListHTML(editedContent);
+        const sanitizedContent = sanitizeListHTML(imageValidation.html);
         
         if (sanitizedContent !== editedContent) {
           console.log('✅ Fixed malformed lists before publishing (no credits used - browser-side fix)');
