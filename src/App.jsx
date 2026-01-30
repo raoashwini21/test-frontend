@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Zap, Settings, RefreshCw, CheckCircle, AlertCircle, Loader, TrendingUp, Search, Sparkles, Code, Eye } from 'lucide-react';
 
-const BACKEND_URL = 'https://test-backend-production-f29b.up.railway.app';
+const BACKEND_URL = 'https://contentops-backend-production.up.railway.app';
 
 // BOFU Research Prompt (Comparison, Reviews, Alternatives, Pricing)
 const BOFU_RESEARCH_PROMPT = `You are a professional fact-checker and researcher. Your job is to:
@@ -348,6 +348,8 @@ export default function ContentOps() {
   const [blogTitle, setBlogTitle] = useState('');
   const [metaDescription, setMetaDescription] = useState('');
   const [metaFieldName, setMetaFieldName] = useState('post-summary'); // Track which field to use
+  const [blogCache, setBlogCache] = useState(null);
+  const [cacheTimestamp, setCacheTimestamp] = useState(null);
 
   useEffect(() => {
     const saved = localStorage.getItem('contentops_config');
@@ -722,6 +724,131 @@ export default function ContentOps() {
     setImageAltModal({ show: false, src: '', currentAlt: '', index: -1 });
   };
 
+  const testWebflowConnection = async () => {
+    setLoading(true);
+    setStatus({ type: 'info', message: 'Testing Webflow connection...' });
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second test
+
+      console.log('Testing Webflow API...');
+      console.log('Collection ID:', config.collectionId);
+      console.log('Token:', config.webflowKey ? 'Present (hidden)' : 'Missing');
+
+      const response = await fetch(
+        `${BACKEND_URL}/api/webflow?collectionId=${config.collectionId}&limit=1&offset=0`,
+        {
+          headers: {
+            'Authorization': `Bearer ${config.webflowKey}`,
+            'accept': 'application/json'
+          },
+          signal: controller.signal
+        }
+      );
+
+      clearTimeout(timeoutId);
+
+      console.log('Response status:', response.status);
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('Error response:', errorData);
+        throw new Error(`Webflow API error: ${response.status} - ${errorData.message || 'Unknown error'}`);
+      }
+
+      const data = await response.json();
+      console.log('Success! Sample data:', data);
+
+      setStatus({
+        type: 'success',
+        message: `✅ Connection successful! Test returned ${data.items?.length || 0} blog (Webflow API working).`
+      });
+
+      // Auto-load blogs after successful test
+      setTimeout(() => fetchBlogs(), 1000);
+
+    } catch (error) {
+      console.error('Connection test failed:', error);
+      
+      if (error.name === 'AbortError') {
+        setStatus({ 
+          type: 'error', 
+          message: '❌ Connection test timed out after 15s. Webflow API is not responding. Check: 1) Token valid? 2) Collection ID correct? 3) Webflow status page?' 
+        });
+      } else {
+        setStatus({ 
+          type: 'error', 
+          message: `❌ Connection failed: ${error.message}. Check your Webflow token and Collection ID.` 
+        });
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchBlogsQuick = async () => {
+    setLoading(true);
+    setStatus({ type: 'info', message: '⚡ Quick loading recent blogs...' });
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
+      const response = await fetch(
+        `${BACKEND_URL}/api/webflow?collectionId=${config.collectionId}&limit=10&offset=0`,
+        {
+          headers: {
+            'Authorization': `Bearer ${config.webflowKey}`,
+            'accept': 'application/json'
+          },
+          signal: controller.signal
+        }
+      );
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(`Failed: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const items = data.items || [];
+
+      // Deduplicate by ID
+      const uniqueItems = [];
+      const seenIds = new Set();
+      for (const item of items) {
+        if (!seenIds.has(item.id)) {
+          seenIds.add(item.id);
+          uniqueItems.push(item);
+        }
+      }
+
+      setBlogs(uniqueItems);
+      setBlogCache(uniqueItems);
+      setCacheTimestamp(Date.now());
+      
+      setStatus({
+        type: 'success',
+        message: `⚡ Quick loaded ${uniqueItems.length} recent blogs`
+      });
+      setView('dashboard');
+
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        setStatus({ 
+          type: 'error', 
+          message: 'Quick load timed out. Webflow API is very slow - try again or check Webflow status.' 
+        });
+      } else {
+        setStatus({ type: 'error', message: error.message });
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const saveConfig = () => {
     if (!config.anthropicKey || !config.braveKey || !config.webflowKey || !config.collectionId) {
       setStatus({ type: 'error', message: 'Please fill in all fields' });
@@ -730,56 +857,141 @@ export default function ContentOps() {
     localStorage.setItem('contentops_config', JSON.stringify(config));
     setSavedConfig(config);
     setStatus({ type: 'success', message: 'Configuration saved!' });
-    fetchBlogs();
+    testWebflowConnection(); // Test first instead of full load
   };
 
- const fetchBlogs = async () => {
+ const fetchBlogs = async (forceRefresh = false) => {
+  // Check cache (valid for 10 minutes)
+  const cacheAge = cacheTimestamp ? Date.now() - cacheTimestamp : Infinity;
+  const CACHE_DURATION = 10 * 60 * 1000; // 10 minutes
+  
+  if (!forceRefresh && blogCache && cacheAge < CACHE_DURATION) {
+    console.log('✓ Using cached blogs');
+    setBlogs(blogCache);
+    const minutesAgo = Math.round(cacheAge / 60000);
+    setStatus({ 
+      type: 'success', 
+      message: `${blogCache.length} blogs (cached ${minutesAgo}m ago)` 
+    });
+    setView('dashboard');
+    return;
+  }
+
   setLoading(true);
-  setStatus({ type: 'info', message: 'Fetching all blogs...' });
+  setStatus({ type: 'info', message: 'Fetching blogs... This may take 1-2 minutes.' });
 
   try {
     const allItems = [];
     const limit = 100;
     let offset = 0;
     let hasMore = true;
+    let totalFetched = 0;
+
+    // 3 minute timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 180000);
 
     while (hasMore) {
+      setStatus({ 
+        type: 'info', 
+        message: `Fetching blogs... ${allItems.length} unique blogs loaded${offset > 0 ? ', loading more...' : ''}` 
+      });
+
       const response = await fetch(
         `${BACKEND_URL}/api/webflow?collectionId=${config.collectionId}&limit=${limit}&offset=${offset}`,
         {
           headers: {
             'Authorization': `Bearer ${config.webflowKey}`,
             'accept': 'application/json'
-          }
+          },
+          signal: controller.signal
         }
       );
 
       if (!response.ok) {
-        throw new Error(`Failed at offset ${offset}`);
+        clearTimeout(timeoutId);
+        throw new Error(`Failed at offset ${offset}: ${response.status}`);
       }
 
       const data = await response.json();
       const items = data.items || [];
 
-      allItems.push(...items);
+      // Check if backend served from cache (returns ALL blogs at once)
+      const cacheHit = response.headers.get('X-Cache') === 'HIT';
+      
+      if (cacheHit && offset === 0) {
+        // Backend returned ALL cached blogs in one shot - no need to paginate!
+        console.log(`✅ Backend cache hit - received all ${items.length} blogs at once`);
+        allItems = items; // Replace, don't append
+        hasMore = false; // Stop pagination
+        
+        // Deduplicate (just in case)
+        const uniqueItems = [];
+        const seenIds = new Set();
+        for (const item of allItems) {
+          if (!seenIds.has(item.id)) {
+            seenIds.add(item.id);
+            uniqueItems.push(item);
+          }
+        }
+        allItems = uniqueItems;
+        setBlogs([...allItems]);
+        break; // Exit loop immediately
+      }
+
+      // Normal pagination (cache miss - fetching from Webflow)
+      // Deduplicate by ID before adding
+      const uniqueNewItems = items.filter(item => !allItems.some(existing => existing.id === item.id));
+      allItems.push(...uniqueNewItems);
+      totalFetched += items.length;
+
+      // Update UI progressively with unique items only
+      setBlogs([...allItems]);
 
       // Stop when fewer than limit returned
       if (items.length < limit) {
         hasMore = false;
       } else {
         offset += limit;
+        // Delay to avoid rate limits (only needed when fetching from Webflow)
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
     }
 
-    setBlogs(allItems);
+    clearTimeout(timeoutId);
+
+    // Final deduplication check
+    const finalUniqueItems = [];
+    const finalSeenIds = new Set();
+    for (const item of allItems) {
+      if (!finalSeenIds.has(item.id)) {
+        finalSeenIds.add(item.id);
+        finalUniqueItems.push(item);
+      }
+    }
+
+    const duplicatesRemoved = allItems.length - finalUniqueItems.length;
+
+    // Cache results
+    setBlogs(finalUniqueItems);
+    setBlogCache(finalUniqueItems);
+    setCacheTimestamp(Date.now());
+    
     setStatus({
       type: 'success',
-      message: `Found ${allItems.length} blog posts`
+      message: `✅ Loaded ${finalUniqueItems.length} unique blogs${duplicatesRemoved > 0 ? ` (removed ${duplicatesRemoved} duplicates)` : ''}`
     });
     setView('dashboard');
 
   } catch (error) {
-    setStatus({ type: 'error', message: error.message });
+    if (error.name === 'AbortError') {
+      setStatus({ 
+        type: 'error', 
+        message: 'Request timed out after 3 minutes. Webflow may be slow - try again in a moment.' 
+      });
+    } else {
+      setStatus({ type: 'error', message: error.message });
+    }
   } finally {
     setLoading(false);
   }
@@ -911,6 +1123,85 @@ export default function ContentOps() {
     }
   };
 
+  // Fix malformed lists (li elements not wrapped in ul/ol)
+  const sanitizeListHTML = (html) => {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(`<div>${html}</div>`, 'text/html');
+    const container = doc.body.firstChild;
+
+    // Find all <li> elements that are NOT inside <ul> or <ol>
+    const orphanedListItems = Array.from(container.querySelectorAll('li')).filter(li => {
+      const parent = li.parentElement;
+      return parent && parent.tagName !== 'UL' && parent.tagName !== 'OL';
+    });
+
+    if (orphanedListItems.length > 0) {
+      console.log(`🔧 Fixing ${orphanedListItems.length} orphaned list items...`);
+
+      // Group consecutive orphaned <li> elements
+      const processedLis = new Set();
+      
+      orphanedListItems.forEach(li => {
+        if (processedLis.has(li)) return;
+        
+        // Find consecutive siblings that are also <li>
+        const group = [li];
+        processedLis.add(li);
+        
+        let nextSibling = li.nextElementSibling;
+        while (nextSibling && nextSibling.tagName === 'LI' && orphanedListItems.includes(nextSibling)) {
+          group.push(nextSibling);
+          processedLis.add(nextSibling);
+          nextSibling = nextSibling.nextElementSibling;
+        }
+        
+        // Wrap group in <ul>
+        if (group.length > 0) {
+          const ul = document.createElement('ul');
+          ul.setAttribute('role', 'list');
+          
+          // Get parent
+          const parent = li.parentElement;
+          
+          // If parent is <p> and only contains this li, replace <p> with <ul>
+          if (parent.tagName === 'P' && parent.children.length === 1 && parent.children[0] === li) {
+            group.forEach(item => {
+              item.setAttribute('role', 'listitem');
+              ul.appendChild(item);
+            });
+            parent.replaceWith(ul);
+          } else {
+            // Insert <ul> before first item
+            parent.insertBefore(ul, li);
+            group.forEach(item => {
+              item.setAttribute('role', 'listitem');
+              ul.appendChild(item);
+            });
+          }
+        }
+      });
+    }
+
+    // Fix any <p> tags that only contain <li>
+    const paragraphs = container.querySelectorAll('p');
+    paragraphs.forEach(p => {
+      const children = Array.from(p.children);
+      const allLi = children.length > 0 && children.every(child => child.tagName === 'LI');
+      
+      if (allLi) {
+        const ul = document.createElement('ul');
+        ul.setAttribute('role', 'list');
+        children.forEach(li => {
+          li.setAttribute('role', 'listitem');
+          ul.appendChild(li);
+        });
+        p.replaceWith(ul);
+      }
+    });
+
+    return container.innerHTML;
+  };
+
   const publishToWebflow = async () => {
     if (!result || !selectedBlog) return;
     
@@ -949,14 +1240,21 @@ export default function ContentOps() {
           metaFieldName: metaFieldName
         });
         
+        // Sanitize lists before publishing
+        const sanitizedContent = sanitizeListHTML(editedContent);
+        
+        if (sanitizedContent !== editedContent) {
+          console.log('✅ Fixed malformed lists before publishing');
+        }
+        
         // Create abort controller for timeout
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+        const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minute timeout
         
         // Build fieldData with the correct meta description field name
         const fieldData = {
           name: blogTitle.trim(),
-          'post-body': editedContent
+          'post-body': sanitizedContent
         };
         
         // Add meta description to the correct field
@@ -995,11 +1293,11 @@ export default function ContentOps() {
         
         // Handle timeout specifically
         if (error.name === 'AbortError') {
-          console.error('Request timed out after 30 seconds');
+          console.error('Request timed out after 2 minutes');
           if (attempt === maxRetries) {
             setStatus({ 
               type: 'error', 
-              message: 'Request timed out. Your content might be too large or Webflow is slow to respond.' 
+              message: 'Request timed out. Webflow may be slow - your content might be too large or Webflow is responding slowly.' 
             });
             setLoading(false);
             return;
@@ -1085,7 +1383,24 @@ export default function ContentOps() {
           <div>
             <div className="flex items-center justify-between mb-8">
               <h2 className="text-3xl font-bold text-[#0f172a]">Your Blog Posts</h2>
-              <button onClick={fetchBlogs} disabled={loading} className="bg-white text-gray-700 px-4 py-2 rounded-lg flex items-center gap-2 border hover:bg-gray-50"><RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />Refresh</button>
+              <div className="flex items-center gap-3">
+                <button onClick={testWebflowConnection} disabled={loading} className="bg-blue-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-600 text-sm">
+                  <Zap className="w-4 h-4" />
+                  Test Connection
+                </button>
+                <button onClick={fetchBlogsQuick} disabled={loading} className="bg-green-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-green-600 text-sm">
+                  ⚡ Quick Load (10)
+                </button>
+                <button onClick={() => fetchBlogs(true)} disabled={loading} className="bg-white text-gray-700 px-4 py-2 rounded-lg flex items-center gap-2 border hover:bg-gray-50">
+                  <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                  <span>Load All</span>
+                  {cacheTimestamp && !loading && (
+                    <span className="text-xs text-gray-500 ml-1">
+                      ({Math.round((Date.now() - cacheTimestamp) / 60000)}m ago)
+                    </span>
+                  )}
+                </button>
+              </div>
             </div>
             {loading ? (
               <div className="text-center py-12"><Loader className="w-12 h-12 text-[#0ea5e9] animate-spin mx-auto mb-4" /><p className="text-gray-600">Loading...</p></div>
@@ -1101,11 +1416,25 @@ export default function ContentOps() {
               </div>
             )}
             {status.message && (
-              <div className={`mt-6 p-4 rounded-lg flex items-center gap-2 ${status.type === 'error' ? 'bg-red-50 border border-red-200' : 'bg-green-50 border border-green-200'}`}>
-                {status.type === 'error' && <AlertCircle className="w-5 h-5 text-red-600" />}
-                {status.type === 'success' && <CheckCircle className="w-5 h-5 text-green-600" />}
-                {status.type === 'info' && <Loader className="w-5 h-5 text-blue-600 animate-spin" />}
-                <p className={`text-sm ${status.type === 'error' ? 'text-red-800' : status.type === 'success' ? 'text-green-800' : 'text-blue-800'}`}>{status.message}</p>
+              <div className={`mt-6 p-4 rounded-lg flex items-start gap-2 ${status.type === 'error' ? 'bg-red-50 border border-red-200' : 'bg-green-50 border border-green-200'}`}>
+                <div className="flex-1">
+                  {status.type === 'error' && <AlertCircle className="w-5 h-5 text-red-600 inline mr-2" />}
+                  {status.type === 'success' && <CheckCircle className="w-5 h-5 text-green-600 inline mr-2" />}
+                  {status.type === 'info' && <Loader className="w-5 h-5 text-blue-600 animate-spin inline mr-2" />}
+                  <span className={`text-sm ${status.type === 'error' ? 'text-red-800' : status.type === 'success' ? 'text-green-800' : 'text-blue-800'}`}>{status.message}</span>
+                  
+                  {status.type === 'error' && status.message.includes('timed out') && (
+                    <div className="mt-3 p-3 bg-white border border-red-200 rounded">
+                      <p className="text-xs font-semibold text-red-900 mb-2">🔧 Troubleshooting:</p>
+                      <ul className="text-xs text-red-800 space-y-1">
+                        <li>• Click "Test Connection" to diagnose the issue</li>
+                        <li>• Try "Quick Load (10)" for faster access</li>
+                        <li>• Check Webflow API status: <a href="https://status.webflow.com" target="_blank" className="underline text-blue-600">status.webflow.com</a></li>
+                        <li>• Verify your Webflow token in Settings</li>
+                      </ul>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -1431,6 +1760,7 @@ export default function ContentOps() {
                     <div ref={afterViewRef} className="blog-content text-gray-800 overflow-y-auto bg-white rounded-lg p-6 min-h-[600px]" contentEditable={true} suppressContentEditableWarning={true} onInput={handleAfterViewInput} onClick={handleContentClick} style={{ maxHeight: '800px', outline: 'none', cursor: 'text' }} />
                   </div>
                 </div>
+              )}
             </div>
             
             <div className="flex gap-4">
