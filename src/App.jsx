@@ -1244,7 +1244,7 @@ export default function ContentOps() {
         const sanitizedContent = sanitizeListHTML(editedContent);
         
         if (sanitizedContent !== editedContent) {
-          console.log('✅ Fixed malformed lists before publishing');
+          console.log('✅ Fixed malformed lists before publishing (no credits used - browser-side fix)');
         }
         
         // Create abort controller for timeout
