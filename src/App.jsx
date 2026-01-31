@@ -379,15 +379,22 @@ export default function ContentOps() {
       if (showHighlights) {
         afterViewRef.current.innerHTML = highlightedData?.html || editedContent;
       } else {
-        const currentContent = afterViewRef.current.innerHTML;
-        const cleanedContent = currentContent.replace(
-          /<div style="background-color: #e0f2fe; padding: 8px; margin: 8px 0; border-left: 3px solid #0ea5e9; border-radius: 4px;">(.*?)<\/div>/gs,
-          '$1'
-        );
-        afterViewRef.current.innerHTML = cleanedContent;
+        // When no highlights, ensure content is displayed
+        if (!afterViewRef.current.innerHTML || afterViewRef.current.innerHTML.trim() === '') {
+          // Initial load: Set content
+          afterViewRef.current.innerHTML = editedContent;
+        } else {
+          // Clean up any existing highlight divs
+          const currentContent = afterViewRef.current.innerHTML;
+          const cleanedContent = currentContent.replace(
+            /<div style="background-color: #e0f2fe; padding: 8px; margin: 8px 0; border-left: 3px solid #0ea5e9; border-radius: 4px;">(.*?)<\/div>/gs,
+            '$1'
+          );
+          afterViewRef.current.innerHTML = cleanedContent;
+        }
       }
     }
-  }, [viewMode, showHighlights, highlightedData]);
+  }, [viewMode, showHighlights, highlightedData, editedContent]);
 
   // Ensure all links in editable area are clickable
   useEffect(() => {
