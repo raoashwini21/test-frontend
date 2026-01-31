@@ -1028,6 +1028,11 @@ export default function ContentOps() {
   // Open blog for editing without analysis (FREE - no credits)
   const openBlogForEditing = (blog) => {
     console.log('Opening blog for quick editing (no analysis):', blog.fieldData.name);
+    console.log('Blog data:', {
+      id: blog.id,
+      hasContent: !!blog.fieldData['post-body'],
+      contentLength: blog.fieldData['post-body']?.length || 0
+    });
     
     setSelectedBlog(blog);
     setBlogTitle(blog.fieldData.name || '');
@@ -1039,20 +1044,38 @@ export default function ContentOps() {
     
     // Set content directly without analysis
     const content = blog.fieldData['post-body'] || '';
+    
+    if (!content) {
+      console.warn('⚠️ Blog has no content in post-body field');
+      setStatus({
+        type: 'error',
+        message: 'This blog has no content in the post-body field. It may be using a different content field.'
+      });
+      return;
+    }
+    
+    console.log('Setting content:', content.substring(0, 100) + '...');
     setEditedContent(content);
     
     // Create a mock result object (no analysis, just original content)
     setResult({
       content: content,
+      originalContent: content,
       changes: [],
       searchesUsed: 0,
-      claudeCalls: 0
+      claudeCalls: 0,
+      detectedHeadings: [],
+      linkCount: 0
     });
     
-    setView('editor');
+    setShowHighlights(false); // No highlights for quick edit
+    setView('review'); // Use review view (same as Smart Check)
+    setViewMode('changes'); // Use changes mode but without highlights
+    
+    console.log('✅ Quick Edit opened successfully');
     setStatus({ 
       type: 'info', 
-      message: '📝 Opened for editing. Click "Publish to Webflow" to save changes (no credits needed for formatting fixes).' 
+      message: '📝 Opened for quick editing (no analysis). Click "Publish to Webflow" to save changes (no credits needed for formatting fixes).' 
     });
   };
 
