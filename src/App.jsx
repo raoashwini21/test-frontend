@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import Papa from 'papaparse';
 import { Zap, Settings, RefreshCw, CheckCircle, AlertCircle, Loader, TrendingUp, Search, Sparkles, Code, Eye, Copy } from 'lucide-react';
 
 const BACKEND_URL = 'https://contentops-backend-production.up.railway.app';
@@ -799,66 +798,98 @@ export default function ContentOps() {
     setGscUploading(true);
     setStatus({ type: 'info', message: 'Processing GSC data...' });
     
-    Papa.parse(file, {
-      header: true,
-      complete: (results) => {
-        try {
-          // Process GSC data
-          const gscByUrl = {};
-          let totalKeywords = 0;
-          
-          results.data.forEach(row => {
-            if (!row.Page || !row.Query) return;
-            
-            // Extract slug from URL
-            const urlParts = row.Page.split('/');
-            const slug = urlParts[urlParts.length - 1] || urlParts[urlParts.length - 2];
-            
-            if (!gscByUrl[slug]) {
-              gscByUrl[slug] = [];
-            }
-            
-            gscByUrl[slug].push({
-              query: row.Query,
-              clicks: parseFloat(row.Clicks) || 0,
-              impressions: parseFloat(row.Impressions) || 0,
-              ctr: parseFloat(row.CTR) || 0,
-              position: parseFloat(row.Position) || 0
-            });
-            
-            totalKeywords++;
-          });
-          
-          // Store in localStorage and state
-          const gscData = {
-            data: gscByUrl,
-            uploadedAt: new Date().toISOString(),
-            totalKeywords,
-            blogsCount: Object.keys(gscByUrl).length
-          };
-          
-          localStorage.setItem('contentops_gsc_data', JSON.stringify(gscData));
-          setGscData(gscData);
-          setShowGscModal(false);
-          setStatus({ 
-            type: 'success', 
-            message: `✅ Processed ${totalKeywords} keywords across ${gscData.blogsCount} blogs` 
-          });
-          
-          setTimeout(() => setStatus({ type: '', message: '' }), 5000);
-        } catch (error) {
-          console.error('GSC parsing error:', error);
-          setStatus({ type: 'error', message: 'Failed to process GSC data. Please check file format.' });
-        } finally {
-          setGscUploading(false);
+    // Read CSV file
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const text = e.target.result;
+        const lines = text.split('\n');
+        
+        if (lines.length < 2) {
+          throw new Error('CSV file is empty');
         }
-      },
-      error: (error) => {
-        console.error('CSV parse error:', error);
-        setStatus({ type: 'error', message: 'Failed to parse CSV file.' });
+        
+        // Parse header
+        const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+        
+        // Find column indices
+        const queryIdx = headers.indexOf('Query');
+        const clicksIdx = headers.indexOf('Clicks');
+        const impressionsIdx = headers.indexOf('Impressions');
+        const ctrIdx = headers.indexOf('CTR');
+        const positionIdx = headers.indexOf('Position');
+        const pageIdx = headers.indexOf('Page');
+        
+        if (queryIdx === -1 || pageIdx === -1) {
+          throw new Error('CSV missing required columns (Query, Page)');
+        }
+        
+        // Process data rows
+        const gscByUrl = {};
+        let totalKeywords = 0;
+        
+        for (let i = 1; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (!line) continue;
+          
+          const values = line.split(',').map(v => v.trim().replace(/"/g, ''));
+          
+          const query = values[queryIdx];
+          const page = values[pageIdx];
+          
+          if (!query || !page) continue;
+          
+          // Extract slug from URL
+          const urlParts = page.split('/');
+          const slug = urlParts[urlParts.length - 1] || urlParts[urlParts.length - 2];
+          
+          if (!gscByUrl[slug]) {
+            gscByUrl[slug] = [];
+          }
+          
+          gscByUrl[slug].push({
+            query: query,
+            clicks: parseFloat(values[clicksIdx]) || 0,
+            impressions: parseFloat(values[impressionsIdx]) || 0,
+            ctr: parseFloat(values[ctrIdx]?.replace('%', '')) || 0,
+            position: parseFloat(values[positionIdx]) || 0
+          });
+          
+          totalKeywords++;
+        }
+        
+        // Store in localStorage and state
+        const gscData = {
+          data: gscByUrl,
+          uploadedAt: new Date().toISOString(),
+          totalKeywords,
+          blogsCount: Object.keys(gscByUrl).length
+        };
+        
+        localStorage.setItem('contentops_gsc_data', JSON.stringify(gscData));
+        setGscData(gscData);
+        setShowGscModal(false);
+        setStatus({ 
+          type: 'success', 
+          message: `✅ Processed ${totalKeywords} keywords across ${gscData.blogsCount} blogs` 
+        });
+        
+        setTimeout(() => setStatus({ type: '', message: '' }), 5000);
+        setGscUploading(false);
+        
+      } catch (error) {
+        console.error('GSC parsing error:', error);
+        setStatus({ type: 'error', message: 'Failed to process GSC data. ' + error.message });
         setGscUploading(false);
       }
-    });
+    };
+    
+    reader.onerror = () => {
+      setStatus({ type: 'error', message: 'Failed to read CSV file.' });
+      setGscUploading(false);
+    };
+    
+    reader.readAsText(file);
   };
 
 
@@ -1926,7 +1957,8 @@ export default function ContentOps() {
                     <div ref={afterViewRef} className="blog-content text-gray-800 overflow-y-auto bg-white rounded-lg p-6 min-h-[600px]" contentEditable={true} suppressContentEditableWarning={true} onInput={handleAfterViewInput} onClick={handleContentClick} style={{ maxHeight: '800px', outline: 'none', cursor: 'text' }} />
                   </div>
                 </div>
-              )}
+                </div>
+              </div>
             </div>
             
             <div className="flex gap-4">
