@@ -1570,15 +1570,12 @@ export default function ContentOps() {
                   <div key={blog.id} className="bg-white rounded-xl p-6 border shadow-sm hover:shadow-md transition-all">
                     <h3 className="font-semibold text-[#0f172a] mb-2 line-clamp-2">{blog.fieldData.name}</h3>
                     <p className="text-sm text-gray-600 mb-4 line-clamp-3">{blog.fieldData['post-summary'] || 'No description'}</p>
-                    {(() => {
-                      const gscInfo = getGscKeywordsForBlog(blog);
-                      return gscInfo ? (
-                        <div className="flex items-center gap-2 mb-3 text-xs bg-purple-50 border border-purple-200 rounded px-2 py-1">
-                          <TrendingUp className="w-3 h-3 text-purple-600" />
-                          <span className="text-purple-700 font-semibold">{gscInfo.opportunities} GSC opportunities</span>
-                        </div>
-                      ) : null;
-                    })()}
+                    {getGscKeywordsForBlog(blog) && (
+                      <div className="flex items-center gap-2 mb-3 text-xs bg-purple-50 border border-purple-200 rounded px-2 py-1">
+                        <TrendingUp className="w-3 h-3 text-purple-600" />
+                        <span className="text-purple-700 font-semibold">{getGscKeywordsForBlog(blog).opportunities} GSC opportunities</span>
+                      </div>
+                    )}
                     <button onClick={() => analyzeBlog(blog)} disabled={loading} className="w-full bg-[#0ea5e9] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#0284c7] disabled:opacity-50">{loading && selectedBlog?.id === blog.id ? <Loader className="w-4 h-4 animate-spin mx-auto" /> : '⚡ Smart Check'}</button>
                   </div>
                 ))}
