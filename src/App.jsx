@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Zap, Settings, RefreshCw, CheckCircle, AlertCircle, Loader, TrendingUp, Search, Sparkles, Code, Eye } from 'lucide-react';
+import Papa from 'papaparse';
+import { Zap, Settings, RefreshCw, CheckCircle, AlertCircle, Loader, TrendingUp, Search, Sparkles, Code, Eye, Copy } from 'lucide-react';
 
 const BACKEND_URL = 'https://contentops-backend-production.up.railway.app';
 
@@ -78,12 +79,31 @@ ALWAYS USE: Contractions, active voice, short sentences, HTML bold tags (<strong
 **CRITICAL: PRESERVE ALL FORMATTING AND STRUCTURE EXACTLY**
 - Keep ALL heading tags (<h1>, <h2>, <h3>, <h4>, <h5>, <h6>) EXACTLY as they are in the original
 - Keep ALL heading hierarchy the same - do NOT change H2 to H3, or H3 to H2, etc.
+- Keep ALL heading text EXACTLY the same - do NOT rewrite, rephrase, or modify heading content
+- Keep ALL heading IDs and attributes unchanged
+
+**ABSOLUTE RULE FOR HEADINGS:**
+DO NOT modify heading content in any way. Headings must be copied EXACTLY character-for-character from the original HTML.
+Examples:
+- Original: <h2 id="best-linkedin-automation-tools">Best LinkedIn Automation Tools</h2>
+- CORRECT: Keep it EXACTLY as-is
+- WRONG: <h2 id="best-linkedin-automation-tools">Top LinkedIn Automation Tools</h2>
+- WRONG: <h2>Best LinkedIn Automation Tools</h2> (missing ID)
+
 - Keep ALL heading text the same unless it contains factual errors
 - Keep ALL bold (<strong>, <b>) and italic (<em>, <i>) formatting EXACTLY as-is
 - Keep ALL links (<a> tags) EXACTLY as-is - preserve href, target, and all attributes
 - Keep ALL paragraph breaks and spacing EXACTLY as they appear in original
 - Keep ALL list structures (<ul>, <ol>, <li>) EXACTLY as-is
 - Keep ALL class attributes, IDs, and data attributes unchanged
+
+**CRITICAL: LIST STRUCTURE (CRITICAL FOR WEBFLOW):**
+- ALWAYS wrap <li> elements in <ul> or <ol> tags
+- NEVER put <li> directly inside <p> tags
+- CORRECT: <ul role="list"><li role="listitem">Item</li></ul>
+- WRONG: <p><li>Item</li></p>
+- Lists must have role="list" attribute for Webflow
+- List items must have role="listitem" attribute for Webflow
 
 **CRITICAL: PRESERVE ALL SPECIAL ELEMENTS - DO NOT CONVERT TO TEXT**
 - Keep ALL <iframe>, <script>, <embed>, <object>, <video>, <audio>, <canvas>, <form> tags EXACTLY as-is
@@ -272,6 +292,20 @@ function VisualEditor({ content, onChange }) {
       initQuill();
     }
   }, []);
+
+  // Load GSC data from localStorage
+  useEffect(() => {
+    const savedGsc = localStorage.getItem('contentops_gsc_data');
+    if (savedGsc) {
+      try {
+        const parsed = JSON.parse(savedGsc);
+        setGscData(parsed);
+      } catch (e) {
+        console.error('Failed to load GSC data:', e);
+      }
+    }
+  }, []);
+
   const initQuill = () => {
     if (!editorRef.current || quillRef.current) return;
     const Quill = window.Quill;
@@ -347,7 +381,11 @@ export default function ContentOps() {
   const [savedSelection, setSavedSelection] = useState(null);
   const [blogTitle, setBlogTitle] = useState('');
   const [metaDescription, setMetaDescription] = useState('');
-  const [metaFieldName, setMetaFieldName] = useState('post-summary'); // Track which field to use
+  const [metaFieldName, setMetaFieldName] = useState('post-summary');
+  const [gscData, setGscData] = useState(null);
+  const [showGscModal, setShowGscModal] = useState(false);
+  const [gscUploading, setGscUploading] = useState(false);
+ // Track which field to use
   const [blogCache, setBlogCache] = useState(null);
   const [cacheTimestamp, setCacheTimestamp] = useState(null);
 
@@ -379,22 +417,15 @@ export default function ContentOps() {
       if (showHighlights) {
         afterViewRef.current.innerHTML = highlightedData?.html || editedContent;
       } else {
-        // When no highlights, ensure content is displayed
-        if (!afterViewRef.current.innerHTML || afterViewRef.current.innerHTML.trim() === '') {
-          // Initial load: Set content
-          afterViewRef.current.innerHTML = editedContent;
-        } else {
-          // Clean up any existing highlight divs
-          const currentContent = afterViewRef.current.innerHTML;
-          const cleanedContent = currentContent.replace(
-            /<div style="background-color: #e0f2fe; padding: 8px; margin: 8px 0; border-left: 3px solid #0ea5e9; border-radius: 4px;">(.*?)<\/div>/gs,
-            '$1'
-          );
-          afterViewRef.current.innerHTML = cleanedContent;
-        }
+        const currentContent = afterViewRef.current.innerHTML;
+        const cleanedContent = currentContent.replace(
+          /<div style="background-color: #e0f2fe; padding: 8px; margin: 8px 0; border-left: 3px solid #0ea5e9; border-radius: 4px;">(.*?)<\/div>/gs,
+          '$1'
+        );
+        afterViewRef.current.innerHTML = cleanedContent;
       }
     }
-  }, [viewMode, showHighlights, highlightedData, editedContent]);
+  }, [viewMode, showHighlights, highlightedData]);
 
   // Ensure all links in editable area are clickable
   useEffect(() => {
@@ -502,6 +533,7 @@ export default function ContentOps() {
     setEditedContent(afterViewRef.current.innerHTML);
   };
 
+  // FIXED: formatList now adds Webflow attributes
   const formatList = (type) => {
     if (!afterViewRef.current) return;
     const selection = window.getSelection();
@@ -533,9 +565,12 @@ export default function ContentOps() {
       });
       parentList.parentNode.replaceChild(fragment, parentList);
     } else {
-      // Create new list
+      // Create new list with Webflow attributes
       const listElement = document.createElement(type === 'bullet' ? 'ul' : 'ol');
+      listElement.setAttribute('role', 'list');  // Add Webflow attribute
+      
       const li = document.createElement('li');
+      li.setAttribute('role', 'listitem');  // Add Webflow attribute
       li.innerHTML = block.innerHTML;
       listElement.appendChild(li);
       block.parentNode.replaceChild(listElement, block);
@@ -731,6 +766,120 @@ export default function ContentOps() {
     setImageAltModal({ show: false, src: '', currentAlt: '', index: -1 });
   };
 
+
+  // NEW: Copy HTML to clipboard
+  const copyHTMLToClipboard = () => {
+    // Get the sanitized HTML (same as what would be published)
+    const sanitizedHTML = sanitizeListHTML(editedContent);
+    
+    navigator.clipboard.writeText(sanitizedHTML).then(() => {
+      setStatus({ 
+        type: 'success', 
+        message: '✅ HTML copied to clipboard! You can now use it in your n8n workflow.' 
+      });
+      
+      // Clear status after 3 seconds
+      setTimeout(() => {
+        setStatus({ type: '', message: '' });
+      }, 3000);
+    }).catch(err => {
+      console.error('Failed to copy:', err);
+      setStatus({ 
+        type: 'error', 
+        message: '❌ Failed to copy HTML. Please try again.' 
+      });
+    });
+  };
+
+
+  const handleGscUpload = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    
+    setGscUploading(true);
+    setStatus({ type: 'info', message: 'Processing GSC data...' });
+    
+    Papa.parse(file, {
+      header: true,
+      complete: (results) => {
+        try {
+          // Process GSC data
+          const gscByUrl = {};
+          let totalKeywords = 0;
+          
+          results.data.forEach(row => {
+            if (!row.Page || !row.Query) return;
+            
+            // Extract slug from URL
+            const urlParts = row.Page.split('/');
+            const slug = urlParts[urlParts.length - 1] || urlParts[urlParts.length - 2];
+            
+            if (!gscByUrl[slug]) {
+              gscByUrl[slug] = [];
+            }
+            
+            gscByUrl[slug].push({
+              query: row.Query,
+              clicks: parseFloat(row.Clicks) || 0,
+              impressions: parseFloat(row.Impressions) || 0,
+              ctr: parseFloat(row.CTR) || 0,
+              position: parseFloat(row.Position) || 0
+            });
+            
+            totalKeywords++;
+          });
+          
+          // Store in localStorage and state
+          const gscData = {
+            data: gscByUrl,
+            uploadedAt: new Date().toISOString(),
+            totalKeywords,
+            blogsCount: Object.keys(gscByUrl).length
+          };
+          
+          localStorage.setItem('contentops_gsc_data', JSON.stringify(gscData));
+          setGscData(gscData);
+          setShowGscModal(false);
+          setStatus({ 
+            type: 'success', 
+            message: `✅ Processed ${totalKeywords} keywords across ${gscData.blogsCount} blogs` 
+          });
+          
+          setTimeout(() => setStatus({ type: '', message: '' }), 5000);
+        } catch (error) {
+          console.error('GSC parsing error:', error);
+          setStatus({ type: 'error', message: 'Failed to process GSC data. Please check file format.' });
+        } finally {
+          setGscUploading(false);
+        }
+      },
+      error: (error) => {
+        console.error('CSV parse error:', error);
+        setStatus({ type: 'error', message: 'Failed to parse CSV file.' });
+        setGscUploading(false);
+      }
+    });
+  };
+
+
+  const getGscKeywordsForBlog = (blog) => {
+    if (!gscData || !gscData.data) return null;
+    
+    const slug = blog.fieldData.slug || blog.fieldData.name?.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    const keywords = gscData.data[slug];
+    
+    if (!keywords || keywords.length === 0) return null;
+    
+    // Filter for positions 4-20 (optimization opportunities)
+    const opportunities = keywords.filter(k => k.position >= 4 && k.position <= 20);
+    
+    return {
+      total: keywords.length,
+      opportunities: opportunities.length,
+      keywords: opportunities.sort((a, b) => a.position - b.position)
+    };
+  };
+
   const testWebflowConnection = async () => {
     setLoading(true);
     setStatus({ type: 'info', message: 'Testing Webflow connection...' });
@@ -888,7 +1037,7 @@ export default function ContentOps() {
   setStatus({ type: 'info', message: 'Fetching blogs... This may take 1-2 minutes.' });
 
   try {
-    const allItems = [];
+    let allItems = [];
     const limit = 100;
     let offset = 0;
     let hasMore = true;
@@ -1004,87 +1153,6 @@ export default function ContentOps() {
   }
 };
 
-  // Detect which field contains the meta description
-  const detectMetaDescriptionField = (fieldData) => {
-    const fieldChecks = [
-      'excerpt',
-      'post-summary', 
-      'summary',
-      'meta-description',
-      'description',
-      'seo-description'
-    ];
-    
-    for (const fieldName of fieldChecks) {
-      if (fieldData[fieldName]) {
-        console.log(`✓ Found meta description in field: "${fieldName}"`);
-        return {
-          fieldName: fieldName,
-          value: fieldData[fieldName]
-        };
-      }
-    }
-    
-    // Default if nothing found
-    return {
-      fieldName: 'post-summary',
-      value: ''
-    };
-  };
-
-  // Open blog for editing without analysis (FREE - no credits)
-  const openBlogForEditing = (blog) => {
-    console.log('Opening blog for quick editing (no analysis):', blog.fieldData.name);
-    console.log('Blog data:', {
-      id: blog.id,
-      hasContent: !!blog.fieldData['post-body'],
-      contentLength: blog.fieldData['post-body']?.length || 0
-    });
-    
-    setSelectedBlog(blog);
-    setBlogTitle(blog.fieldData.name || '');
-    
-    // Detect meta description field
-    const detected = detectMetaDescriptionField(blog.fieldData);
-    setMetaFieldName(detected.fieldName);
-    setMetaDescription(detected.value);
-    
-    // Set content directly without analysis
-    const content = blog.fieldData['post-body'] || '';
-    
-    if (!content) {
-      console.warn('⚠️ Blog has no content in post-body field');
-      setStatus({
-        type: 'error',
-        message: 'This blog has no content in the post-body field. It may be using a different content field.'
-      });
-      return;
-    }
-    
-    console.log('Setting content:', content.substring(0, 100) + '...');
-    setEditedContent(content);
-    
-    // Create a mock result object (no analysis, just original content)
-    setResult({
-      content: content,
-      originalContent: content,
-      changes: [],
-      searchesUsed: 0,
-      claudeCalls: 0,
-      detectedHeadings: [],
-      linkCount: 0
-    });
-    
-    setShowHighlights(false); // No highlights for quick edit
-    setView('review'); // Use review view (same as Smart Check)
-    setViewMode('changes'); // Use changes mode but without highlights
-    
-    console.log('✅ Quick Edit opened successfully');
-    setStatus({ 
-      type: 'info', 
-      message: '📝 Opened for quick editing (no analysis). Click "Publish to Webflow" to save changes (no credits needed for formatting fixes).' 
-    });
-  };
 
   const analyzeBlog = async (blog) => {
     setSelectedBlog(blog);
@@ -1094,10 +1162,30 @@ export default function ContentOps() {
     const blogTitle = blog.fieldData.name;
     setBlogTitle(blogTitle);
     
-    // Detect meta description field
-    const detected = detectMetaDescriptionField(blog.fieldData);
-    setMetaDescription(detected.value);
-    setMetaFieldName(detected.fieldName);
+    // Try multiple common field names for meta description and store which one worked
+    const fieldChecks = [
+      'excerpt',
+      'post-summary', 
+      'summary',
+      'meta-description',
+      'description',
+      'seo-description'
+    ];
+    
+    let metaDescriptionValue = '';
+    let detectedFieldName = 'post-summary'; // default
+    
+    for (const fieldName of fieldChecks) {
+      if (blog.fieldData[fieldName]) {
+        metaDescriptionValue = blog.fieldData[fieldName];
+        detectedFieldName = fieldName;
+        console.log(`✓ Found meta description in field: "${fieldName}"`);
+        break;
+      }
+    }
+    
+    setMetaDescription(metaDescriptionValue);
+    setMetaFieldName(detectedFieldName);
     
     // Debug logging to see available fields
     console.log('=== WEBFLOW FIELD DETECTION ===');
@@ -1108,8 +1196,8 @@ export default function ContentOps() {
         console.log(`  ${key}: ${value.substring(0, 50)}${value.length > 50 ? '...' : ''}`);
       }
     });
-    console.log('Meta description field used:', detected.fieldName);
-    console.log('Meta description value:', detected.value ? detected.value.substring(0, 100) : '(empty)');
+    console.log('Meta description field used:', detectedFieldName);
+    console.log('Meta description value:', metaDescriptionValue ? metaDescriptionValue.substring(0, 100) : '(empty)');
     console.log('===============================');
     
     const blogType = detectBlogType(blogTitle);
@@ -1141,6 +1229,9 @@ export default function ContentOps() {
     console.log('======================');
     
     try {
+      // Get GSC keywords for this blog
+      const gscKeywords = getGscKeywordsForBlog(blog);
+      
       const response = await fetch(`${BACKEND_URL}/api/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1150,7 +1241,8 @@ export default function ContentOps() {
           anthropicKey: config.anthropicKey,
           braveKey: config.braveKey,
           researchPrompt: selectedResearchPrompt,
-          writingPrompt: WRITING_PROMPT
+          writingPrompt: WRITING_PROMPT,
+          gscKeywords: gscKeywords ? gscKeywords.keywords : null
         })
       });
       if (!response.ok) {
@@ -1191,7 +1283,7 @@ export default function ContentOps() {
     }
   };
 
-  // Fix malformed lists (li elements not wrapped in ul/ol)
+  // NEW: Fix malformed lists before publishing
   const sanitizeListHTML = (html) => {
     const parser = new DOMParser();
     const doc = parser.parseFromString(`<div>${html}</div>`, 'text/html');
@@ -1206,7 +1298,6 @@ export default function ContentOps() {
     if (orphanedListItems.length > 0) {
       console.log(`🔧 Fixing ${orphanedListItems.length} orphaned list items...`);
 
-      // Group consecutive orphaned <li> elements
       const processedLis = new Set();
       
       orphanedListItems.forEach(li => {
@@ -1228,10 +1319,8 @@ export default function ContentOps() {
           const ul = document.createElement('ul');
           ul.setAttribute('role', 'list');
           
-          // Get parent
           const parent = li.parentElement;
           
-          // If parent is <p> and only contains this li, replace <p> with <ul>
           if (parent.tagName === 'P' && parent.children.length === 1 && parent.children[0] === li) {
             group.forEach(item => {
               item.setAttribute('role', 'listitem');
@@ -1239,7 +1328,6 @@ export default function ContentOps() {
             });
             parent.replaceWith(ul);
           } else {
-            // Insert <ul> before first item
             parent.insertBefore(ul, li);
             group.forEach(item => {
               item.setAttribute('role', 'listitem');
@@ -1268,57 +1356,6 @@ export default function ContentOps() {
     });
 
     return container.innerHTML;
-  };
-
-  // Validate and clean images before publishing
-  const validateAndCleanImages = (html) => {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(`<div>${html}</div>`, 'text/html');
-    const container = doc.body.firstChild;
-    
-    const images = container.querySelectorAll('img');
-    const problematicImages = [];
-    
-    images.forEach((img, index) => {
-      const src = img.getAttribute('src');
-      
-      // Check for problematic patterns
-      if (src) {
-        // Check if src looks corrupted or has wrong extension
-        if (src.includes('application/xml') || 
-            src.endsWith('.xml') || 
-            src.includes('text/html') ||
-            !src.match(/\.(jpg|jpeg|png|gif|webp|svg)(\?|$)/i)) {
-          
-          console.warn(`⚠️ Potentially problematic image found:`, src.substring(0, 100));
-          problematicImages.push({
-            index: index + 1,
-            src: src.substring(0, 100) + '...',
-            alt: img.getAttribute('alt') || '(no alt text)'
-          });
-        }
-      }
-    });
-    
-    if (problematicImages.length > 0) {
-      console.error('⚠️ Found problematic images that may cause publishing to fail:');
-      problematicImages.forEach(img => {
-        console.error(`  Image ${img.index}: ${img.alt}`);
-        console.error(`    URL: ${img.src}`);
-      });
-      
-      return {
-        valid: false,
-        issues: problematicImages,
-        html: container.innerHTML
-      };
-    }
-    
-    return {
-      valid: true,
-      issues: [],
-      html: container.innerHTML
-    };
   };
 
   const publishToWebflow = async () => {
@@ -1359,20 +1396,8 @@ export default function ContentOps() {
           metaFieldName: metaFieldName
         });
         
-        // Validate images first
-        const imageValidation = validateAndCleanImages(editedContent);
-        
-        if (!imageValidation.valid) {
-          setLoading(false);
-          setStatus({ 
-            type: 'error', 
-            message: `⚠️ Found ${imageValidation.issues.length} problematic image(s) that may cause publishing to fail. Check console for details. Remove or replace these images and try again.`
-          });
-          return; // Stop publishing
-        }
-        
-        // Sanitize lists before publishing
-        const sanitizedContent = sanitizeListHTML(imageValidation.html);
+        // Sanitize lists before publishing (browser-side, FREE!)
+        const sanitizedContent = sanitizeListHTML(editedContent);
         
         if (sanitizedContent !== editedContent) {
           console.log('✅ Fixed malformed lists before publishing (no credits used - browser-side fix)');
@@ -1385,7 +1410,7 @@ export default function ContentOps() {
         // Build fieldData with the correct meta description field name
         const fieldData = {
           name: blogTitle.trim(),
-          'post-body': sanitizedContent
+          'post-body': sanitizedContent  // Use sanitized content!
         };
         
         // Add meta description to the correct field
@@ -1515,6 +1540,10 @@ export default function ContentOps() {
             <div className="flex items-center justify-between mb-8">
               <h2 className="text-3xl font-bold text-[#0f172a]">Your Blog Posts</h2>
               <div className="flex items-center gap-3">
+                <button onClick={() => setShowGscModal(true)} disabled={loading} className="bg-purple-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-purple-700 text-sm">
+                  <TrendingUp className="w-4 h-4" />
+                  {gscData ? `GSC: ${gscData.blogsCount} blogs` : 'Upload GSC Data'}
+                </button>
                 <button onClick={testWebflowConnection} disabled={loading} className="bg-blue-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-600 text-sm">
                   <Zap className="w-4 h-4" />
                   Test Connection
@@ -1541,22 +1570,16 @@ export default function ContentOps() {
                   <div key={blog.id} className="bg-white rounded-xl p-6 border shadow-sm hover:shadow-md transition-all">
                     <h3 className="font-semibold text-[#0f172a] mb-2 line-clamp-2">{blog.fieldData.name}</h3>
                     <p className="text-sm text-gray-600 mb-4 line-clamp-3">{blog.fieldData['post-summary'] || 'No description'}</p>
-                    <div className="flex gap-2">
-                      <button 
-                        onClick={() => openBlogForEditing(blog)} 
-                        disabled={loading} 
-                        className="flex-1 bg-gray-100 text-gray-700 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-gray-200 disabled:opacity-50 border border-gray-300"
-                      >
-                        📝 Quick Edit
-                      </button>
-                      <button 
-                        onClick={() => analyzeBlog(blog)} 
-                        disabled={loading} 
-                        className="flex-1 bg-[#0ea5e9] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#0284c7] disabled:opacity-50"
-                      >
-                        {loading && selectedBlog?.id === blog.id ? <Loader className="w-4 h-4 animate-spin mx-auto" /> : '⚡ Smart Check'}
-                      </button>
-                    </div>
+                    {(() => {
+                      const gscInfo = getGscKeywordsForBlog(blog);
+                      return gscInfo ? (
+                        <div className="flex items-center gap-2 mb-3 text-xs bg-purple-50 border border-purple-200 rounded px-2 py-1">
+                          <TrendingUp className="w-3 h-3 text-purple-600" />
+                          <span className="text-purple-700 font-semibold">{gscInfo.opportunities} GSC opportunities</span>
+                        </div>
+                      ) : null;
+                    })()}
+                    <button onClick={() => analyzeBlog(blog)} disabled={loading} className="w-full bg-[#0ea5e9] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#0284c7] disabled:opacity-50">{loading && selectedBlog?.id === blog.id ? <Loader className="w-4 h-4 animate-spin mx-auto" /> : '⚡ Smart Check'}</button>
                   </div>
                 ))}
               </div>
@@ -1922,14 +1945,19 @@ export default function ContentOps() {
                   <div className="flex-1">
                     <h4 className="font-bold text-red-900 mb-2">Publishing Failed</h4>
                     <p className="text-red-800 text-sm mb-3">{status.message}</p>
-                    <div className="bg-white border border-red-200 rounded-lg p-3 text-xs">
-                      <p className="font-semibold text-red-900 mb-2">Troubleshooting:</p>
-                      <ul className="list-disc list-inside space-y-1 text-red-700">
-                        <li>Check your Webflow API token is valid</li>
-                        <li>Verify the blog post exists in Webflow</li>
-                        <li>Try refreshing and analyzing the blog again</li>
-                        <li>Content might be too large (over 500KB)</li>
-                      </ul>
+                    <div className="bg-white border border-red-200 rounded-lg p-4 mb-3">
+                      <p className="font-semibold text-red-900 mb-2">💡 Backup Option:</p>
+                      <p className="text-red-700 text-sm mb-3">
+                        If publishing keeps failing, you can use the button below to copy the HTML and publish via your n8n workflow.
+                      </p>
+                      <button 
+                        onClick={copyHTMLToClipboard}
+                        className="bg-purple-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-purple-700 text-sm font-semibold"
+                        title="Copy HTML for n8n workflow"
+                      >
+                        <Copy className="w-4 h-4" />
+                        Copy HTML for n8n
+                      </button>
                     </div>
                     <button 
                       onClick={publishToWebflow} 
@@ -2000,6 +2028,73 @@ export default function ContentOps() {
             <div className="flex gap-3 mt-4">
               <button onClick={() => { setShowImageModal(false); setImageUrl(''); setImageFile(null); }} className="flex-1 bg-gray-100 py-3 rounded font-semibold">Cancel</button>
               <button onClick={applyImage} className="flex-1 bg-[#0ea5e9] text-white py-3 rounded font-semibold">Insert</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+
+      {showGscModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => setShowGscModal(false)}>
+          <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-xl font-bold mb-4">📊 Upload GSC Data</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Upload your Google Search Console CSV export. The data will be used to automatically optimize headings and content for SEO.
+            </p>
+            
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+              <p className="text-xs text-blue-800 font-semibold mb-2">💡 How to export from GSC:</p>
+              <ol className="text-xs text-blue-700 space-y-1 ml-4 list-decimal">
+                <li>Go to Google Search Console</li>
+                <li>Select "Performance" → "Search results"</li>
+                <li>Set date range to "Last 3 months"</li>
+                <li>Click "Export" → "Download CSV"</li>
+                <li>Upload the file here</li>
+              </ol>
+            </div>
+            
+            <label className="block text-sm font-semibold mb-2">Choose CSV File</label>
+            <input 
+              type="file" 
+              accept=".csv" 
+              onChange={handleGscUpload}
+              disabled={gscUploading}
+              className="w-full bg-gray-50 border rounded px-4 py-3 mb-4" 
+            />
+            
+            {gscData && (
+              <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-4">
+                <p className="text-xs text-green-800 font-semibold">✅ Current GSC Data:</p>
+                <p className="text-xs text-green-700">
+                  {gscData.totalKeywords} keywords across {gscData.blogsCount} blogs
+                </p>
+                <p className="text-xs text-green-600 mt-1">
+                  Uploaded: {new Date(gscData.uploadedAt).toLocaleDateString()}
+                </p>
+              </div>
+            )}
+            
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setShowGscModal(false)} 
+                disabled={gscUploading}
+                className="flex-1 bg-gray-100 py-3 rounded font-semibold"
+              >
+                {gscData ? 'Done' : 'Cancel'}
+              </button>
+              {gscData && (
+                <button 
+                  onClick={() => {
+                    localStorage.removeItem('contentops_gsc_data');
+                    setGscData(null);
+                    setStatus({ type: 'success', message: 'GSC data cleared' });
+                    setShowGscModal(false);
+                  }}
+                  className="flex-1 bg-red-500 text-white py-3 rounded font-semibold"
+                >
+                  Clear Data
+                </button>
+              )}
             </div>
           </div>
         </div>
