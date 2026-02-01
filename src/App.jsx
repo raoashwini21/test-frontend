@@ -292,19 +292,16 @@ function VisualEditor({ content, onChange }) {
     }
   }, []);
 
-  // Load GSC data from localStorage
   useEffect(() => {
     const savedGsc = localStorage.getItem('contentops_gsc_data');
     if (savedGsc) {
       try {
-        const parsed = JSON.parse(savedGsc);
-        setGscData(parsed);
+        setGscData(JSON.parse(savedGsc));
       } catch (e) {
         console.error('Failed to load GSC data:', e);
       }
     }
   }, []);
-
   const initQuill = () => {
     if (!editorRef.current || quillRef.current) return;
     const Quill = window.Quill;
@@ -383,8 +380,7 @@ export default function ContentOps() {
   const [metaFieldName, setMetaFieldName] = useState('post-summary');
   const [gscData, setGscData] = useState(null);
   const [showGscModal, setShowGscModal] = useState(false);
-  const [gscUploading, setGscUploading] = useState(false);
- // Track which field to use
+  const [gscUploading, setGscUploading] = useState(false); // Track which field to use
   const [blogCache, setBlogCache] = useState(null);
   const [cacheTimestamp, setCacheTimestamp] = useState(null);
 
@@ -792,13 +788,12 @@ export default function ContentOps() {
 
 
   const handleGscUpload = (event) => {
-    const file = event.target.files?.[0];
+    const file = event.target.files && event.target.files[0];
     if (!file) return;
     
     setGscUploading(true);
     setStatus({ type: 'info', message: 'Processing GSC data...' });
     
-    // Read CSV file
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
@@ -809,10 +804,7 @@ export default function ContentOps() {
           throw new Error('CSV file is empty');
         }
         
-        // Parse header
         const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
-        
-        // Find column indices
         const queryIdx = headers.indexOf('Query');
         const clicksIdx = headers.indexOf('Clicks');
         const impressionsIdx = headers.indexOf('Impressions');
@@ -824,7 +816,6 @@ export default function ContentOps() {
           throw new Error('CSV missing required columns (Query, Page)');
         }
         
-        // Process data rows
         const gscByUrl = {};
         let totalKeywords = 0;
         
@@ -833,13 +824,11 @@ export default function ContentOps() {
           if (!line) continue;
           
           const values = line.split(',').map(v => v.trim().replace(/"/g, ''));
-          
           const query = values[queryIdx];
           const page = values[pageIdx];
           
           if (!query || !page) continue;
           
-          // Extract slug from URL
           const urlParts = page.split('/');
           const slug = urlParts[urlParts.length - 1] || urlParts[urlParts.length - 2];
           
@@ -851,14 +840,13 @@ export default function ContentOps() {
             query: query,
             clicks: parseFloat(values[clicksIdx]) || 0,
             impressions: parseFloat(values[impressionsIdx]) || 0,
-            ctr: parseFloat(values[ctrIdx]?.replace('%', '')) || 0,
+            ctr: parseFloat(values[ctrIdx] && values[ctrIdx].replace('%', '')) || 0,
             position: parseFloat(values[positionIdx]) || 0
           });
           
           totalKeywords++;
         }
         
-        // Store in localStorage and state
         const gscData = {
           data: gscByUrl,
           uploadedAt: new Date().toISOString(),
@@ -892,16 +880,14 @@ export default function ContentOps() {
     reader.readAsText(file);
   };
 
-
   const getGscKeywordsForBlog = (blog) => {
     if (!gscData || !gscData.data) return null;
     
-    const slug = blog.fieldData.slug || blog.fieldData.name?.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    const slug = blog.fieldData.slug || blog.fieldData.name && blog.fieldData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
     const keywords = gscData.data[slug];
     
     if (!keywords || keywords.length === 0) return null;
     
-    // Filter for positions 4-20 (optimization opportunities)
     const opportunities = keywords.filter(k => k.position >= 4 && k.position <= 20);
     
     return {
@@ -1260,7 +1246,6 @@ export default function ContentOps() {
     console.log('======================');
     
     try {
-      // Get GSC keywords for this blog
       const gscKeywords = getGscKeywordsForBlog(blog);
       
       const response = await fetch(`${BACKEND_URL}/api/analyze`, {
@@ -1601,12 +1586,6 @@ export default function ContentOps() {
                   <div key={blog.id} className="bg-white rounded-xl p-6 border shadow-sm hover:shadow-md transition-all">
                     <h3 className="font-semibold text-[#0f172a] mb-2 line-clamp-2">{blog.fieldData.name}</h3>
                     <p className="text-sm text-gray-600 mb-4 line-clamp-3">{blog.fieldData['post-summary'] || 'No description'}</p>
-                    {getGscKeywordsForBlog(blog) && (
-                      <div className="flex items-center gap-2 mb-3 text-xs bg-purple-50 border border-purple-200 rounded px-2 py-1">
-                        <TrendingUp className="w-3 h-3 text-purple-600" />
-                        <span className="text-purple-700 font-semibold">{getGscKeywordsForBlog(blog).opportunities} GSC opportunities</span>
-                      </div>
-                    )}
                     <button onClick={() => analyzeBlog(blog)} disabled={loading} className="w-full bg-[#0ea5e9] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#0284c7] disabled:opacity-50">{loading && selectedBlog?.id === blog.id ? <Loader className="w-4 h-4 animate-spin mx-auto" /> : '⚡ Smart Check'}</button>
                   </div>
                 ))}
@@ -1957,29 +1936,12 @@ export default function ContentOps() {
                     <div ref={afterViewRef} className="blog-content text-gray-800 overflow-y-auto bg-white rounded-lg p-6 min-h-[600px]" contentEditable={true} suppressContentEditableWarning={true} onInput={handleAfterViewInput} onClick={handleContentClick} style={{ maxHeight: '800px', outline: 'none', cursor: 'text' }} />
                   </div>
                 </div>
-                </div>
-              </div>
+              )}
             </div>
             
             <div className="flex gap-4">
               <button onClick={() => setView('dashboard')} className="flex-1 bg-gray-100 text-gray-700 py-4 rounded-lg font-semibold hover:bg-gray-200">← Cancel</button>
-              <button 
-                onClick={publishToWebflow} 
-                disabled={loading} 
-                className="flex-1 bg-[#0ea5e9] text-white py-4 px-8 rounded-lg font-semibold hover:bg-[#0284c7] disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg"
-              >
-                {loading ? (
-                  <>
-                    <Loader className="w-5 h-5 animate-spin" />
-                    {status.message.includes('Retry') ? status.message : 'Publishing...'}
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle className="w-5 h-5" />
-                    Publish to Webflow
-                  </>
-                )}
-              </button>
+              <button onClick={publishToWebflow} disabled={loading} className="flex-1 bg-[#0ea5e9] text-white py-4 px-8 rounded-lg font-semibold hover:bg-[#0284c7] disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg">{loading ? <><Loader className="w-5 h-5 animate-spin" />{status.message.includes('Retry') ? status.message : 'Publishing...'}</> : <><CheckCircle className="w-5 h-5" />Publish to Webflow</>}</button>
             </div>
             
             {/* Error/Status Display */}
@@ -2084,19 +2046,8 @@ export default function ContentOps() {
           <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-xl font-bold mb-4">📊 Upload GSC Data</h3>
             <p className="text-sm text-gray-600 mb-4">
-              Upload your Google Search Console CSV export. The data will be used to automatically optimize headings and content for SEO.
+              Upload your Google Search Console CSV export to optimize your blogs for SEO.
             </p>
-            
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
-              <p className="text-xs text-blue-800 font-semibold mb-2">💡 How to export from GSC:</p>
-              <ol className="text-xs text-blue-700 space-y-1 ml-4 list-decimal">
-                <li>Go to Google Search Console</li>
-                <li>Select "Performance" → "Search results"</li>
-                <li>Set date range to "Last 3 months"</li>
-                <li>Click "Export" → "Download CSV"</li>
-                <li>Upload the file here</li>
-              </ol>
-            </div>
             
             <label className="block text-sm font-semibold mb-2">Choose CSV File</label>
             <input 
@@ -2112,9 +2063,6 @@ export default function ContentOps() {
                 <p className="text-xs text-green-800 font-semibold">✅ Current GSC Data:</p>
                 <p className="text-xs text-green-700">
                   {gscData.totalKeywords} keywords across {gscData.blogsCount} blogs
-                </p>
-                <p className="text-xs text-green-600 mt-1">
-                  Uploaded: {new Date(gscData.uploadedAt).toLocaleDateString()}
                 </p>
               </div>
             )}
