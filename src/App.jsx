@@ -380,7 +380,14 @@ export default function ContentOps() {
   const [metaFieldName, setMetaFieldName] = useState('post-summary');
   const [gscData, setGscData] = useState(null);
   const [showGscModal, setShowGscModal] = useState(false);
-  const [gscUploading, setGscUploading] = useState(false); // Track which field to use
+  const [gscUploading, setGscUploading] = useState(false);
+  const [showKeywordPopup, setShowKeywordPopup] = useState(false);
+  const [customKeywords, setCustomKeywords] = useState('');
+  const [matchedKeywords, setMatchedKeywords] = useState([]);
+  
+  useEffect(() => {
+    console.log('showGscModal state changed:', showGscModal);
+  }, [showGscModal]); // Track which field to use
   const [blogCache, setBlogCache] = useState(null);
   const [cacheTimestamp, setCacheTimestamp] = useState(null);
 
@@ -787,114 +794,267 @@ export default function ContentOps() {
   };
 
 
-  const handleGscUpload = (event) => {
+  const handleGscUpload = async (event) => {
     const file = event.target.files && event.target.files[0];
     if (!file) return;
     
+    console.log('File selected:', file.name, 'Type:', file.type);
     setGscUploading(true);
     setStatus({ type: 'info', message: 'Processing GSC data...' });
     
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const text = e.target.result;
-        const lines = text.split('\n');
-        
-        if (lines.length < 2) {
-          throw new Error('CSV file is empty');
-        }
-        
-        const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
-        const queryIdx = headers.indexOf('Query');
-        const clicksIdx = headers.indexOf('Clicks');
-        const impressionsIdx = headers.indexOf('Impressions');
-        const ctrIdx = headers.indexOf('CTR');
-        const positionIdx = headers.indexOf('Position');
-        const pageIdx = headers.indexOf('Page');
-        
-        if (queryIdx === -1 || pageIdx === -1) {
-          throw new Error('CSV missing required columns (Query, Page)');
-        }
-        
-        const gscByUrl = {};
-        let totalKeywords = 0;
-        
-        for (let i = 1; i < lines.length; i++) {
-          const line = lines[i].trim();
-          if (!line) continue;
-          
-          const values = line.split(',').map(v => v.trim().replace(/"/g, ''));
-          const query = values[queryIdx];
-          const page = values[pageIdx];
-          
-          if (!query || !page) continue;
-          
-          const urlParts = page.split('/');
-          const slug = urlParts[urlParts.length - 1] || urlParts[urlParts.length - 2];
-          
-          if (!gscByUrl[slug]) {
-            gscByUrl[slug] = [];
+    // Check if it's XLSX
+    const isXLSX = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
+    
+    if (isXLSX) {
+      // Parse XLSX file
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          // Load SheetJS if not already loaded
+          if (typeof XLSX === 'undefined') {
+            console.log('Loading SheetJS...');
+            await new Promise((resolve, reject) => {
+              const script = document.createElement('script');
+              script.src = 'https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js';
+              script.onload = resolve;
+              script.onerror = reject;
+              document.head.appendChild(script);
+            });
           }
           
-          gscByUrl[slug].push({
-            query: query,
-            clicks: parseFloat(values[clicksIdx]) || 0,
-            impressions: parseFloat(values[impressionsIdx]) || 0,
-            ctr: parseFloat(values[ctrIdx] && values[ctrIdx].replace('%', '')) || 0,
-            position: parseFloat(values[positionIdx]) || 0
+          console.log('Parsing XLSX...');
+          const data = new Uint8Array(e.target.result);
+          const workbook = XLSX.read(data, { type: 'array' });
+          
+          console.log('Sheet names:', workbook.SheetNames);
+          
+          // Find Queries and Pages sheets
+          const queriesSheet = workbook.SheetNames.find(name => 
+            name.toLowerCase().includes('quer')
+          );
+          const pagesSheet = workbook.SheetNames.find(name => 
+            name.toLowerCase().includes('page')
+          );
+          
+          if (!queriesSheet || !pagesSheet) {
+            throw new Error('Could not find Queries or Pages sheet. Found: ' + workbook.SheetNames.join(', '));
+          }
+          
+          // Parse sheets to JSON
+          const queriesData = XLSX.utils.sheet_to_json(workbook.Sheets[queriesSheet]);
+          const pagesData = XLSX.utils.sheet_to_json(workbook.Sheets[pagesSheet]);
+          
+          console.log('Queries rows:', queriesData.length);
+          console.log('Pages rows:', pagesData.length);
+          
+          // Process and match keywords to pages
+          const gscByUrl = {};
+          let totalMatches = 0;
+          
+          // First, index all queries
+          const allQueries = queriesData.map(row => ({
+            query: (row['Top queries'] || row['Query'] || row['Queries'] || '').toLowerCase(),
+            clicks: parseFloat(row['Clicks'] || 0),
+            impressions: parseFloat(row['Impressions'] || 0),
+            ctr: parseFloat(row['CTR'] || 0) * 100,
+            position: parseFloat(row['Position'] || 0)
+          })).filter(q => q.query);
+          
+          console.log('Total queries:', allQueries.length);
+          
+          // Process each page
+          for (const row of pagesData) {
+            const pageUrl = row['Top pages'] || row['Page'] || row['Pages'] || '';
+            if (!pageUrl || !pageUrl.includes('/blogs/')) continue;
+            
+            // Extract slug
+            let slug = '';
+            try {
+              const url = new URL(pageUrl);
+              const parts = url.pathname.split('/').filter(p => p);
+              slug = parts[parts.length - 1];
+            } catch (e) {
+              continue;
+            }
+            
+            if (!slug) continue;
+            
+            // Match keywords to this page
+            const slugWords = slug.replace(/-/g, ' ').toLowerCase();
+            const matchedKeywords = [];
+            
+            // Score each keyword for this page
+            for (const query of allQueries) {
+              let score = 0;
+              const queryWords = query.query.split(' ');
+              
+              // Check word overlap
+              for (const word of queryWords) {
+                if (word.length > 3 && slugWords.includes(word)) {
+                  score += 2;
+                }
+              }
+              
+              // Bonus if query is substring of slug or vice versa
+              if (slugWords.includes(query.query) || query.query.includes(slug.replace(/-/g, ' '))) {
+                score += 5;
+              }
+              
+              // If good match, add it
+              if (score >= 4) {
+                matchedKeywords.push({
+                  ...query,
+                  matchScore: score
+                });
+              }
+            }
+            
+            // Sort by match score then position
+            matchedKeywords.sort((a, b) => {
+              if (b.matchScore !== a.matchScore) return b.matchScore - a.matchScore;
+              return a.position - b.position;
+            });
+            
+            // Take top 10 matched keywords
+            const topKeywords = matchedKeywords.slice(0, 10);
+            
+            if (topKeywords.length > 0) {
+              gscByUrl[slug] = {
+                url: pageUrl,
+                clicks: parseFloat(row['Clicks'] || 0),
+                impressions: parseFloat(row['Impressions'] || 0),
+                ctr: parseFloat(row['CTR'] || 0) * 100,
+                position: parseFloat(row['Position'] || 0),
+                keywords: topKeywords,
+                hasKeywords: true
+              };
+              totalMatches++;
+            }
+          }
+          
+          console.log('Matched keywords to', totalMatches, 'pages');
+          
+          if (totalMatches === 0) {
+            throw new Error('No keyword matches found. Check that your blog URLs contain keyword-related slugs.');
+          }
+          
+          const gscData = {
+            data: gscByUrl,
+            uploadedAt: new Date().toISOString(),
+            totalMatches,
+            blogsCount: Object.keys(gscByUrl).length,
+            type: 'xlsx-matched'
+          };
+          
+          localStorage.setItem('contentops_gsc_data', JSON.stringify(gscData));
+          setGscData(gscData);
+          setStatus({ 
+            type: 'success', 
+            message: `✅ Matched keywords to ${totalMatches} blogs!` 
           });
           
-          totalKeywords++;
+          console.log('Success! GSC data with keywords stored.');
+          setTimeout(() => {
+            setStatus({ type: '', message: '' });
+            setShowGscModal(false);
+          }, 2000);
+          
+        } catch (error) {
+          console.error('XLSX parsing error:', error);
+          setStatus({ 
+            type: 'error', 
+            message: 'Failed: ' + error.message 
+          });
+        } finally {
+          setGscUploading(false);
         }
-        
-        const gscData = {
-          data: gscByUrl,
-          uploadedAt: new Date().toISOString(),
-          totalKeywords,
-          blogsCount: Object.keys(gscByUrl).length
-        };
-        
-        localStorage.setItem('contentops_gsc_data', JSON.stringify(gscData));
-        setGscData(gscData);
-        setShowGscModal(false);
-        setStatus({ 
-          type: 'success', 
-          message: `✅ Processed ${totalKeywords} keywords across ${gscData.blogsCount} blogs` 
-        });
-        
-        setTimeout(() => setStatus({ type: '', message: '' }), 5000);
+      };
+      
+      reader.onerror = () => {
+        setStatus({ type: 'error', message: 'Failed to read XLSX file.' });
         setGscUploading(false);
-        
-      } catch (error) {
-        console.error('GSC parsing error:', error);
-        setStatus({ type: 'error', message: 'Failed to process GSC data. ' + error.message });
-        setGscUploading(false);
-      }
-    };
-    
-    reader.onerror = () => {
-      setStatus({ type: 'error', message: 'Failed to read CSV file.' });
+      };
+      
+      reader.readAsArrayBuffer(file);
+      
+    } else {
+      // Original CSV handling code here (keep for backward compatibility)
+      setStatus({ type: 'error', message: 'Please upload an XLSX file from GSC export.' });
       setGscUploading(false);
-    };
-    
-    reader.readAsText(file);
+    }
   };
 
   const getGscKeywordsForBlog = (blog) => {
     if (!gscData || !gscData.data) return null;
     
     const slug = blog.fieldData.slug || blog.fieldData.name && blog.fieldData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-    const keywords = gscData.data[slug];
+    const pageData = gscData.data[slug];
     
-    if (!keywords || keywords.length === 0) return null;
-    
-    const opportunities = keywords.filter(k => k.position >= 4 && k.position <= 20);
+    if (!pageData) return null;
     
     return {
-      total: keywords.length,
-      opportunities: opportunities.length,
-      keywords: opportunities.sort((a, b) => a.position - b.position)
+      hasTraffic: true,
+      clicks: pageData.clicks,
+      impressions: pageData.impressions,
+      position: pageData.position,
+      ctr: pageData.ctr,
+      url: pageData.url,
+      keywords: pageData.keywords || [],
+      hasKeywords: pageData.hasKeywords || false
     };
+  };
+
+  
+
+  const continueAnalyzeWithKeywords = async (selectedKeywords) => {
+    setShowKeywordPopup(false);
+    setLoading(true);
+    setView('review');
+    setStatus({ type: 'info', message: 'Analyzing blog with keywords...' });
+    
+    const blog = selectedBlog;
+    const fullOriginalContent = blog.fieldData['post-body'] || blog.fieldData['blog-content'] || '';
+    
+    try {
+      const gscInfo = getGscKeywordsForBlog(blog);
+      
+      const response = await fetch(`${BACKEND_URL}/api/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          blogContent: fullOriginalContent,
+          title: blogTitle,
+          anthropicKey: config.anthropicKey,
+          braveKey: config.braveKey,
+          researchPrompt: selectedResearchPrompt,
+          writingPrompt: WRITING_PROMPT,
+          gscKeywords: selectedKeywords,
+          gscPosition: gscInfo ? gscInfo.position : null
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Server error: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data.error) {
+        throw new Error(data.error);
+      }
+      
+      setOriginalContent(fullOriginalContent);
+      setEditedContent(data.content);
+      setResult(data);
+      setStatus({ type: 'success', message: data.message || 'Analysis complete!' });
+      setLoading(false);
+      
+    } catch (error) {
+      console.error('Analysis error:', error);
+      setStatus({ type: 'error', message: error.message || 'Failed to analyze blog' });
+      setLoading(false);
+      setView('dashboard');
+    }
   };
 
   const testWebflowConnection = async () => {
@@ -1556,9 +1716,9 @@ export default function ContentOps() {
             <div className="flex items-center justify-between mb-8">
               <h2 className="text-3xl font-bold text-[#0f172a]">Your Blog Posts</h2>
               <div className="flex items-center gap-3">
-                <button onClick={() => setShowGscModal(true)} disabled={loading} className="bg-purple-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-purple-700 text-sm">
+                <button onClick={() => { console.log('GSC button clicked'); setShowGscModal(true); }} disabled={loading} className="bg-purple-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-purple-700 text-sm">
                   <TrendingUp className="w-4 h-4" />
-                  {gscData ? `GSC: ${gscData.blogsCount} blogs` : 'Upload GSC Data'}
+                  {gscData ? `GSC: ${gscData.blogsCount || gscData.totalMatches} blogs` : 'Upload GSC Data'}
                 </button>
                 <button onClick={testWebflowConnection} disabled={loading} className="bg-blue-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-600 text-sm">
                   <Zap className="w-4 h-4" />
@@ -2041,8 +2201,111 @@ export default function ContentOps() {
       )}
 
 
-      {showGscModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => setShowGscModal(false)}>
+      {showKeywordPopup && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999]" onClick={() => setShowKeywordPopup(false)}>
+          <div className="bg-white rounded-xl p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-xl font-bold mb-4">🎯 Optimize with Keywords</h3>
+            
+            {matchedKeywords.length > 0 && (
+              <div className="mb-4">
+                <p className="text-sm font-semibold text-gray-700 mb-2">Auto-matched keywords for this blog:</p>
+                <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 space-y-1 max-h-40 overflow-y-auto">
+                  {matchedKeywords.slice(0, 10).map((kw, idx) => (
+                    <div key={idx} className="text-xs flex items-center justify-between">
+                      <span className="text-purple-800">
+                        <span className="font-semibold">{idx + 1}.</span> {kw.query}
+                      </span>
+                      <span className="text-purple-600 text-xs">
+                        Pos {kw.position.toFixed(1)} • {Math.round(kw.clicks)} clicks
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            
+            <div className="mb-4">
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                Add custom keywords (optional):
+              </label>
+              <textarea
+                value={customKeywords}
+                onChange={(e) => setCustomKeywords(e.target.value)}
+                placeholder="Enter additional keywords (one per line)&#10;Example:&#10;linkedin automation tool&#10;sales robot pricing"
+                className="w-full h-24 px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                These will be added to the auto-matched keywords above
+              </p>
+            </div>
+            
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowKeywordPopup(false);
+                  // Continue without keywords
+                  const analyze = async () => {
+                    setLoading(true);
+                    setView('review');
+                    const blog = selectedBlog;
+                    const fullOriginalContent = blog.fieldData['post-body'] || blog.fieldData['blog-content'] || '';
+                    
+                    try {
+                      const response = await fetch(`${BACKEND_URL}/api/analyze`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          blogContent: fullOriginalContent,
+                          title: blogTitle,
+                          anthropicKey: config.anthropicKey,
+                          braveKey: config.braveKey,
+                          researchPrompt: selectedResearchPrompt,
+                          writingPrompt: WRITING_PROMPT
+                        })
+                      });
+                      
+                      const data = await response.json();
+                      if (data.error) throw new Error(data.error);
+                      
+                      setOriginalContent(fullOriginalContent);
+                      setEditedContent(data.content);
+                      setResult(data);
+                      setStatus({ type: 'success', message: data.message || 'Analysis complete!' });
+                      setLoading(false);
+                    } catch (error) {
+                      setStatus({ type: 'error', message: error.message });
+                      setLoading(false);
+                      setView('dashboard');
+                    }
+                  };
+                  analyze();
+                }}
+                className="flex-1 bg-gray-100 text-gray-700 py-3 rounded-lg font-semibold hover:bg-gray-200"
+              >
+                Skip Keywords
+              </button>
+              
+              <button
+                onClick={() => {
+                  // Combine matched + custom keywords
+                  const matched = matchedKeywords.map(k => k.query);
+                  const custom = customKeywords.split('\n').filter(k => k.trim());
+                  const allKeywords = [...matched, ...custom].filter((k, i, arr) => arr.indexOf(k) === i);
+                  
+                  console.log('Optimizing with keywords:', allKeywords);
+                  continueAnalyzeWithKeywords(allKeywords);
+                }}
+                className="flex-1 bg-purple-600 text-white py-3 rounded-lg font-semibold hover:bg-purple-700"
+              >
+                Optimize with {matchedKeywords.length + (customKeywords.split('\n').filter(k => k.trim()).length)} Keywords
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+            {showGscModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999]" onClick={() => setShowGscModal(false)}>
           <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-xl font-bold mb-4">📊 Upload GSC Data</h3>
             <p className="text-sm text-gray-600 mb-4">
@@ -2052,11 +2315,21 @@ export default function ContentOps() {
             <label className="block text-sm font-semibold mb-2">Choose CSV File</label>
             <input 
               type="file" 
-              accept=".csv" 
+              accept=".xlsx,.xls,.csv" 
               onChange={handleGscUpload}
               disabled={gscUploading}
               className="w-full bg-gray-50 border rounded px-4 py-3 mb-4" 
             />
+            
+            {status.message && (
+              <div className={`p-3 rounded-lg mb-4 text-sm ${
+                status.type === 'success' ? 'bg-green-50 text-green-800 border border-green-200' :
+                status.type === 'error' ? 'bg-red-50 text-red-800 border border-red-200' :
+                'bg-blue-50 text-blue-800 border border-blue-200'
+              }`}>
+                {status.message}
+              </div>
+            )}
             
             {gscData && (
               <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-4">
