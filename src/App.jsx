@@ -2144,7 +2144,7 @@ export default function ContentOps() {
       </div>
 
 
-          {
+          )
       {/* 🆕 GSC Upload Modal */}
       {showGscModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999]" onClick={() => setShowGscModal(false)}>
