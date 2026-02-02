@@ -985,12 +985,27 @@ export default function ContentOps() {
   };
 
   const getGscKeywordsForBlog = (blog) => {
-    if (!gscData || !gscData.data) return null;
+    if (!gscData || !gscData.data) {
+      console.log('No GSC data available');
+      return null;
+    }
     
-    const slug = blog.fieldData.slug || blog.fieldData.name && blog.fieldData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    const slug = blog.fieldData.slug || (blog.fieldData.name && blog.fieldData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-'));
+    console.log('Checking blog:', blog.fieldData.name, 'Slug:', slug);
+    
     const pageData = gscData.data[slug];
     
-    if (!pageData) return null;
+    if (!pageData) {
+      console.log('No GSC data for slug:', slug);
+      console.log('Available slugs:', Object.keys(gscData.data).slice(0, 5));
+      return null;
+    }
+    
+    console.log('Found GSC data for', slug, ':', {
+      keywords: pageData.keywords ? pageData.keywords.length : 0,
+      clicks: pageData.clicks,
+      position: pageData.position
+    });
     
     return {
       hasTraffic: true,
@@ -1746,6 +1761,31 @@ export default function ContentOps() {
                   <div key={blog.id} className="bg-white rounded-xl p-6 border shadow-sm hover:shadow-md transition-all">
                     <h3 className="font-semibold text-[#0f172a] mb-2 line-clamp-2">{blog.fieldData.name}</h3>
                     <p className="text-sm text-gray-600 mb-4 line-clamp-3">{blog.fieldData['post-summary'] || 'No description'}</p>
+                    
+                    {/* GSC Data Display */}
+                    {(() => {
+                      const gscInfo = getGscKeywordsForBlog(blog);
+                      if (!gscInfo) return null;
+                      
+                      return (
+                        <div className="mb-4 space-y-2">
+                          <div className="flex items-center gap-2 text-xs bg-purple-50 border border-purple-200 rounded px-3 py-2">
+                            <TrendingUp className="w-3 h-3 text-purple-600" />
+                            <span className="text-purple-700 font-semibold">
+                              {Math.round(gscInfo.clicks)} clicks • Pos {gscInfo.position.toFixed(1)}
+                            </span>
+                          </div>
+                          {gscInfo.hasKeywords && gscInfo.keywords.length > 0 && (
+                            <div className="text-xs text-gray-600 bg-gray-50 rounded px-3 py-2">
+                              <span className="font-semibold text-gray-700">🎯 Keywords: </span>
+                              {gscInfo.keywords.slice(0, 3).map(k => k.query).join(', ')}
+                              {gscInfo.keywords.length > 3 && ` +${gscInfo.keywords.length - 3} more`}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                    
                     <button onClick={() => analyzeBlog(blog)} disabled={loading} className="w-full bg-[#0ea5e9] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#0284c7] disabled:opacity-50">{loading && selectedBlog?.id === blog.id ? <Loader className="w-4 h-4 animate-spin mx-auto" /> : '⚡ Smart Check'}</button>
                   </div>
                 ))}
