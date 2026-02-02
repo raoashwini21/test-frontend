@@ -291,17 +291,6 @@ function VisualEditor({ content, onChange }) {
       initQuill();
     }
   }, []);
-
-  useEffect(() => {
-    const savedGsc = localStorage.getItem('contentops_gsc_data');
-    if (savedGsc) {
-      try {
-        setGscData(JSON.parse(savedGsc));
-      } catch (e) {
-        console.error('Failed to load GSC data:', e);
-      }
-    }
-  }, []);
   const initQuill = () => {
     if (!editorRef.current || quillRef.current) return;
     const Quill = window.Quill;
@@ -377,19 +366,14 @@ export default function ContentOps() {
   const [savedSelection, setSavedSelection] = useState(null);
   const [blogTitle, setBlogTitle] = useState('');
   const [metaDescription, setMetaDescription] = useState('');
-  const [metaFieldName, setMetaFieldName] = useState('post-summary');
+  const [metaFieldName, setMetaFieldName] = useState('post-summary'); // Track which field to use
+  const [blogCache, setBlogCache] = useState(null);
+  const [cacheTimestamp, setCacheTimestamp] = useState(null);
+
+  // 🆕 GSC STATE (SIMPLIFIED - NO POPUP)
   const [gscData, setGscData] = useState(null);
   const [showGscModal, setShowGscModal] = useState(false);
   const [gscUploading, setGscUploading] = useState(false);
-  const [showKeywordPopup, setShowKeywordPopup] = useState(false);
-  const [customKeywords, setCustomKeywords] = useState('');
-  const [matchedKeywords, setMatchedKeywords] = useState([]);
-  
-  useEffect(() => {
-    console.log('showGscModal state changed:', showGscModal);
-  }, [showGscModal]); // Track which field to use
-  const [blogCache, setBlogCache] = useState(null);
-  const [cacheTimestamp, setCacheTimestamp] = useState(null);
 
   useEffect(() => {
     const saved = localStorage.getItem('contentops_config');
@@ -397,6 +381,18 @@ export default function ContentOps() {
       const parsed = JSON.parse(saved);
       setSavedConfig(parsed);
       setConfig(parsed);
+    }
+
+    // 🆕 Load GSC data from localStorage
+    const savedGsc = localStorage.getItem('contentops_gsc_data');
+    if (savedGsc) {
+      try {
+        const parsed = JSON.parse(savedGsc);
+        setGscData(parsed);
+        console.log('✅ Loaded GSC data:', parsed.totalMatches, 'blogs');
+      } catch (e) {
+        console.error('Failed to parse GSC data');
+      }
     }
   }, []);
 
@@ -768,8 +764,7 @@ export default function ContentOps() {
     setImageAltModal({ show: false, src: '', currentAlt: '', index: -1 });
   };
 
-
-  // NEW: Copy HTML to clipboard
+  // Copy HTML to clipboard
   const copyHTMLToClipboard = () => {
     // Get the sanitized HTML (same as what would be published)
     const sanitizedHTML = sanitizeListHTML(editedContent);
@@ -793,219 +788,18 @@ export default function ContentOps() {
     });
   };
 
-
-  const handleGscUpload = async (event) => {
-    const file = event.target.files && event.target.files[0];
-    if (!file) return;
-    
-    console.log('File selected:', file.name, 'Type:', file.type);
-    setGscUploading(true);
-    setStatus({ type: 'info', message: 'Processing GSC data...' });
-    
-    // Check if it's XLSX
-    const isXLSX = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
-    
-    if (isXLSX) {
-      // Parse XLSX file
-      const reader = new FileReader();
-      reader.onload = async (e) => {
-        try {
-          // Load SheetJS if not already loaded
-          if (typeof XLSX === 'undefined') {
-            console.log('Loading SheetJS...');
-            await new Promise((resolve, reject) => {
-              const script = document.createElement('script');
-              script.src = 'https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js';
-              script.onload = resolve;
-              script.onerror = reject;
-              document.head.appendChild(script);
-            });
-          }
-          
-          console.log('Parsing XLSX...');
-          const data = new Uint8Array(e.target.result);
-          const workbook = XLSX.read(data, { type: 'array' });
-          
-          console.log('Sheet names:', workbook.SheetNames);
-          
-          // Find Queries and Pages sheets
-          const queriesSheet = workbook.SheetNames.find(name => 
-            name.toLowerCase().includes('quer')
-          );
-          const pagesSheet = workbook.SheetNames.find(name => 
-            name.toLowerCase().includes('page')
-          );
-          
-          if (!queriesSheet || !pagesSheet) {
-            throw new Error('Could not find Queries or Pages sheet. Found: ' + workbook.SheetNames.join(', '));
-          }
-          
-          // Parse sheets to JSON
-          const queriesData = XLSX.utils.sheet_to_json(workbook.Sheets[queriesSheet]);
-          const pagesData = XLSX.utils.sheet_to_json(workbook.Sheets[pagesSheet]);
-          
-          console.log('Queries rows:', queriesData.length);
-          console.log('Pages rows:', pagesData.length);
-          
-          // Process and match keywords to pages
-          const gscByUrl = {};
-          let totalMatches = 0;
-          
-          // First, index all queries
-          const allQueries = queriesData.map(row => ({
-            query: (row['Top queries'] || row['Query'] || row['Queries'] || '').toLowerCase(),
-            clicks: parseFloat(row['Clicks'] || 0),
-            impressions: parseFloat(row['Impressions'] || 0),
-            ctr: parseFloat(row['CTR'] || 0) * 100,
-            position: parseFloat(row['Position'] || 0)
-          })).filter(q => q.query);
-          
-          console.log('Total queries:', allQueries.length);
-          
-          // Process each page
-          for (const row of pagesData) {
-            const pageUrl = row['Top pages'] || row['Page'] || row['Pages'] || '';
-            if (!pageUrl || !pageUrl.includes('/blogs/')) continue;
-            
-            // Extract slug
-            let slug = '';
-            try {
-              const url = new URL(pageUrl);
-              const parts = url.pathname.split('/').filter(p => p);
-              slug = parts[parts.length - 1];
-            } catch (e) {
-              continue;
-            }
-            
-            if (!slug) continue;
-            
-            // Match keywords to this page
-            const slugWords = slug.replace(/-/g, ' ').toLowerCase();
-            const matchedKeywords = [];
-            
-            // Score each keyword for this page
-            for (const query of allQueries) {
-              let score = 0;
-              const queryWords = query.query.split(' ');
-              
-              // Check word overlap
-              for (const word of queryWords) {
-                if (word.length > 3 && slugWords.includes(word)) {
-                  score += 2;
-                }
-              }
-              
-              // Bonus if query is substring of slug or vice versa
-              if (slugWords.includes(query.query) || query.query.includes(slug.replace(/-/g, ' '))) {
-                score += 5;
-              }
-              
-              // If good match, add it
-              if (score >= 4) {
-                matchedKeywords.push({
-                  ...query,
-                  matchScore: score
-                });
-              }
-            }
-            
-            // Sort by match score then position
-            matchedKeywords.sort((a, b) => {
-              if (b.matchScore !== a.matchScore) return b.matchScore - a.matchScore;
-              return a.position - b.position;
-            });
-            
-            // Take top 10 matched keywords
-            const topKeywords = matchedKeywords.slice(0, 10);
-            
-            if (topKeywords.length > 0) {
-              gscByUrl[slug] = {
-                url: pageUrl,
-                clicks: parseFloat(row['Clicks'] || 0),
-                impressions: parseFloat(row['Impressions'] || 0),
-                ctr: parseFloat(row['CTR'] || 0) * 100,
-                position: parseFloat(row['Position'] || 0),
-                keywords: topKeywords,
-                hasKeywords: true
-              };
-              totalMatches++;
-            }
-          }
-          
-          console.log('Matched keywords to', totalMatches, 'pages');
-          
-          if (totalMatches === 0) {
-            throw new Error('No keyword matches found. Check that your blog URLs contain keyword-related slugs.');
-          }
-          
-          const gscData = {
-            data: gscByUrl,
-            uploadedAt: new Date().toISOString(),
-            totalMatches,
-            blogsCount: Object.keys(gscByUrl).length,
-            type: 'xlsx-matched'
-          };
-          
-          localStorage.setItem('contentops_gsc_data', JSON.stringify(gscData));
-          setGscData(gscData);
-          setStatus({ 
-            type: 'success', 
-            message: `✅ Matched keywords to ${totalMatches} blogs!` 
-          });
-          
-          console.log('Success! GSC data with keywords stored.');
-          setTimeout(() => {
-            setStatus({ type: '', message: '' });
-            setShowGscModal(false);
-          }, 2000);
-          
-        } catch (error) {
-          console.error('XLSX parsing error:', error);
-          setStatus({ 
-            type: 'error', 
-            message: 'Failed: ' + error.message 
-          });
-        } finally {
-          setGscUploading(false);
-        }
-      };
-      
-      reader.onerror = () => {
-        setStatus({ type: 'error', message: 'Failed to read XLSX file.' });
-        setGscUploading(false);
-      };
-      
-      reader.readAsArrayBuffer(file);
-      
-    } else {
-      // Original CSV handling code here (keep for backward compatibility)
-      setStatus({ type: 'error', message: 'Please upload an XLSX file from GSC export.' });
-      setGscUploading(false);
-    }
-  };
-
+  // 🆕 GSC Helper Functions
   const getGscKeywordsForBlog = (blog) => {
     if (!gscData || !gscData.data) {
-      console.log('No GSC data available');
       return null;
     }
     
     const slug = blog.fieldData.slug || (blog.fieldData.name && blog.fieldData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-'));
-    console.log('Checking blog:', blog.fieldData.name, 'Slug:', slug);
-    
     const pageData = gscData.data[slug];
     
     if (!pageData) {
-      console.log('No GSC data for slug:', slug);
-      console.log('Available slugs:', Object.keys(gscData.data).slice(0, 5));
       return null;
     }
-    
-    console.log('Found GSC data for', slug, ':', {
-      keywords: pageData.keywords ? pageData.keywords.length : 0,
-      clicks: pageData.clicks,
-      position: pageData.position
-    });
     
     return {
       hasTraffic: true,
@@ -1019,57 +813,182 @@ export default function ContentOps() {
     };
   };
 
-  
-
-  const continueAnalyzeWithKeywords = async (selectedKeywords) => {
-    setShowKeywordPopup(false);
-    setLoading(true);
-    setView('review');
-    setStatus({ type: 'info', message: 'Analyzing blog with keywords...' });
+  // 🆕 Handle XLSX upload
+  const handleGscUpload = async (event) => {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
     
-    const blog = selectedBlog;
-    const fullOriginalContent = blog.fieldData['post-body'] || blog.fieldData['blog-content'] || '';
+    console.log('File selected:', file.name);
+    setGscUploading(true);
+    setStatus({ type: 'info', message: 'Processing GSC data...' });
     
-    try {
-      const gscInfo = getGscKeywordsForBlog(blog);
-      
-      const response = await fetch(`${BACKEND_URL}/api/analyze`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          blogContent: fullOriginalContent,
-          title: blogTitle,
-          anthropicKey: config.anthropicKey,
-          braveKey: config.braveKey,
-          researchPrompt: selectedResearchPrompt,
-          writingPrompt: WRITING_PROMPT,
-          gscKeywords: selectedKeywords,
-          gscPosition: gscInfo ? gscInfo.position : null
-        })
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Server error: ${response.status}`);
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        // Load SheetJS if not already loaded
+        if (typeof XLSX === 'undefined') {
+          console.log('Loading SheetJS...');
+          await new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = 'https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js';
+            script.onload = resolve;
+            script.onerror = reject;
+            document.head.appendChild(script);
+          });
+        }
+        
+        console.log('Parsing XLSX...');
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        
+        // Find Queries and Pages sheets
+        const queriesSheet = workbook.SheetNames.find(name => 
+          name.toLowerCase().includes('quer')
+        );
+        const pagesSheet = workbook.SheetNames.find(name => 
+          name.toLowerCase().includes('page')
+        );
+        
+        if (!queriesSheet || !pagesSheet) {
+          throw new Error('Could not find Queries or Pages sheet');
+        }
+        
+        // Parse sheets to JSON
+        const queriesData = XLSX.utils.sheet_to_json(workbook.Sheets[queriesSheet]);
+        const pagesData = XLSX.utils.sheet_to_json(workbook.Sheets[pagesSheet]);
+        
+        console.log('Queries rows:', queriesData.length);
+        console.log('Pages rows:', pagesData.length);
+        
+        // Process and match keywords to pages
+        const gscByUrl = {};
+        let totalMatches = 0;
+        
+        // Index all queries
+        const allQueries = queriesData.map(row => ({
+          query: (row['Top queries'] || row['Query'] || row['Queries'] || '').toLowerCase(),
+          clicks: parseFloat(row['Clicks'] || 0),
+          impressions: parseFloat(row['Impressions'] || 0),
+          ctr: parseFloat(row['CTR'] || 0) * 100,
+          position: parseFloat(row['Position'] || 0)
+        })).filter(q => q.query);
+        
+        console.log('Total queries:', allQueries.length);
+        
+        // Process each page
+        for (const row of pagesData) {
+          const pageUrl = row['Top pages'] || row['Page'] || row['Pages'] || '';
+          if (!pageUrl || !pageUrl.includes('/blogs/')) continue;
+          
+          // Extract slug
+          let slug = '';
+          try {
+            const url = new URL(pageUrl);
+            const parts = url.pathname.split('/').filter(p => p);
+            slug = parts[parts.length - 1];
+          } catch (e) {
+            continue;
+          }
+          
+          if (!slug) continue;
+          
+          // Match keywords to this page
+          const slugWords = slug.replace(/-/g, ' ').toLowerCase();
+          const matchedKeywords = [];
+          
+          // Score each keyword for this page
+          for (const query of allQueries) {
+            let score = 0;
+            const queryWords = query.query.split(' ');
+            
+            // Check word overlap
+            for (const word of queryWords) {
+              if (word.length > 3 && slugWords.includes(word)) {
+                score += 2;
+              }
+            }
+            
+            // Bonus if query is substring of slug or vice versa
+            if (slugWords.includes(query.query) || query.query.includes(slug.replace(/-/g, ' '))) {
+              score += 5;
+            }
+            
+            // If good match, add it
+            if (score >= 4) {
+              matchedKeywords.push({
+                ...query,
+                matchScore: score
+              });
+            }
+          }
+          
+          // Sort by match score then position
+          matchedKeywords.sort((a, b) => {
+            if (b.matchScore !== a.matchScore) return b.matchScore - a.matchScore;
+            return a.position - b.position;
+          });
+          
+          // Take top 10 matched keywords
+          const topKeywords = matchedKeywords.slice(0, 10);
+          
+          if (topKeywords.length > 0) {
+            gscByUrl[slug] = {
+              url: pageUrl,
+              clicks: parseFloat(row['Clicks'] || 0),
+              impressions: parseFloat(row['Impressions'] || 0),
+              ctr: parseFloat(row['CTR'] || 0) * 100,
+              position: parseFloat(row['Position'] || 0),
+              keywords: topKeywords,
+              hasKeywords: true
+            };
+            totalMatches++;
+          }
+        }
+        
+        console.log('Matched keywords to', totalMatches, 'pages');
+        
+        if (totalMatches === 0) {
+          throw new Error('No keyword matches found');
+        }
+        
+        const gscDataObj = {
+          data: gscByUrl,
+          uploadedAt: new Date().toISOString(),
+          totalMatches,
+          blogsCount: Object.keys(gscByUrl).length,
+          type: 'xlsx-matched'
+        };
+        
+        localStorage.setItem('contentops_gsc_data', JSON.stringify(gscDataObj));
+        setGscData(gscDataObj);
+        setStatus({ 
+          type: 'success', 
+          message: `✅ Matched keywords to ${totalMatches} blogs!` 
+        });
+        
+        console.log('Success! GSC data stored.');
+        setTimeout(() => {
+          setStatus({ type: '', message: '' });
+          setShowGscModal(false);
+        }, 2000);
+        
+      } catch (error) {
+        console.error('XLSX parsing error:', error);
+        setStatus({ 
+          type: 'error', 
+          message: 'Failed: ' + error.message 
+        });
+      } finally {
+        setGscUploading(false);
       }
-      
-      const data = await response.json();
-      
-      if (data.error) {
-        throw new Error(data.error);
-      }
-      
-      setOriginalContent(fullOriginalContent);
-      setEditedContent(data.content);
-      setResult(data);
-      setStatus({ type: 'success', message: data.message || 'Analysis complete!' });
-      setLoading(false);
-      
-    } catch (error) {
-      console.error('Analysis error:', error);
-      setStatus({ type: 'error', message: error.message || 'Failed to analyze blog' });
-      setLoading(false);
-      setView('dashboard');
-    }
+    };
+    
+    reader.onerror = () => {
+      setStatus({ type: 'error', message: 'Failed to read XLSX file.' });
+      setGscUploading(false);
+    };
+    
+    reader.readAsArrayBuffer(file);
   };
 
   const testWebflowConnection = async () => {
@@ -1345,9 +1264,132 @@ export default function ContentOps() {
   }
 };
 
-
+  // 🆕 Modified analyzeBlog to auto-use GSC keywords (NO POPUP!)
   const analyzeBlog = async (blog) => {
     setSelectedBlog(blog);
+    setLoading(true);
+    
+    // Check for GSC keywords
+    const gscInfo = getGscKeywordsForBlog(blog);
+    const hasGscKeywords = gscInfo && gscInfo.hasKeywords && gscInfo.keywords.length > 0;
+    
+    // Auto-detect blog type from title
+    const blogTitle = blog.fieldData.name;
+    setBlogTitle(blogTitle);
+    
+    // Try multiple common field names for meta description
+    const fieldChecks = [
+      'excerpt',
+      'post-summary', 
+      'summary',
+      'meta-description',
+      'description',
+      'seo-description'
+    ];
+    
+    let metaDescriptionValue = '';
+    let detectedFieldName = 'post-summary';
+    
+    for (const fieldName of fieldChecks) {
+      if (blog.fieldData[fieldName]) {
+        metaDescriptionValue = blog.fieldData[fieldName];
+        detectedFieldName = fieldName;
+        break;
+      }
+    }
+    
+    setMetaDescription(metaDescriptionValue);
+    setMetaFieldName(detectedFieldName);
+    
+    const blogType = detectBlogType(blogTitle);
+    
+    // Select appropriate research prompt based on blog type
+    let selectedResearchPrompt;
+    if (blogType === 'BOFU') {
+      selectedResearchPrompt = BOFU_RESEARCH_PROMPT;
+    } else if (blogType === 'TOFU') {
+      selectedResearchPrompt = TOFU_RESEARCH_PROMPT;
+    } else {
+      selectedResearchPrompt = MOFU_RESEARCH_PROMPT;
+    }
+    
+    // Status message based on whether GSC keywords exist
+    if (hasGscKeywords) {
+      setStatus({ 
+        type: 'info', 
+        message: `🎯 Optimizing with ${gscInfo.keywords.length} GSC keywords + web search...` 
+      });
+      console.log('🎯 Auto-using GSC keywords:', gscInfo.keywords.slice(0, 5).map(k => k.query));
+    } else {
+      setStatus({ type: 'info', message: 'Smart analysis in progress (15-20s)...' });
+    }
+    
+    const fullOriginalContent = blog.fieldData['post-body'] || '';
+    
+    try {
+      // 🆕 Auto-extract just the keyword strings for backend
+      const gscKeywordStrings = hasGscKeywords 
+        ? gscInfo.keywords.map(k => k.query) 
+        : null;
+      
+      const response = await fetch(`${BACKEND_URL}/api/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          blogContent: fullOriginalContent,
+          title: blogTitle,
+          anthropicKey: config.anthropicKey,
+          braveKey: config.braveKey,
+          researchPrompt: selectedResearchPrompt,
+          writingPrompt: WRITING_PROMPT,
+          gscKeywords: gscKeywordStrings,  // 🆕 Auto-send keywords
+          gscPosition: gscInfo ? gscInfo.position : null
+        })
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Analysis failed');
+      }
+      
+      const data = await response.json();
+      let updatedContent = data.content || fullOriginalContent;
+      updatedContent = updatedContent.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      
+      const highlighted = createHighlightedHTML(fullOriginalContent, updatedContent);
+      setHighlightedData(highlighted);
+      
+      setResult({
+        changes: data.changes || [],
+        searchesUsed: data.searchesUsed || 0,
+        claudeCalls: data.claudeCalls || 0,
+        sectionsUpdated: data.sectionsUpdated || 0,
+        content: updatedContent,
+        originalContent: fullOriginalContent,
+        duration: data.duration || 0,
+        blogType: blogType,
+        gscOptimized: data.gscOptimized || false,
+        gscKeywordsUsed: hasGscKeywords ? gscInfo.keywords : null  // 🆕 Store for display
+      });
+      
+      setEditedContent(updatedContent);
+      setShowHighlights(true);
+      
+      const successMsg = hasGscKeywords 
+        ? `✅ Optimized with ${gscInfo.keywords.length} keywords + web search!`
+        : '✅ Analysis complete!';
+      
+      setStatus({ type: 'success', message: successMsg });
+      setView('review');
+      setViewMode('changes');
+    } catch (error) {
+      setStatus({ type: 'error', message: error.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const continueAnalyzeWithoutKeywords = async (blog) => {
     setLoading(true);
     
     // Auto-detect blog type from title
@@ -1379,50 +1421,22 @@ export default function ContentOps() {
     setMetaDescription(metaDescriptionValue);
     setMetaFieldName(detectedFieldName);
     
-    // Debug logging to see available fields
-    console.log('=== WEBFLOW FIELD DETECTION ===');
-    console.log('All available fields:', Object.keys(blog.fieldData));
-    console.log('Field values:');
-    Object.entries(blog.fieldData).forEach(([key, value]) => {
-      if (typeof value === 'string' && value.length > 0) {
-        console.log(`  ${key}: ${value.substring(0, 50)}${value.length > 50 ? '...' : ''}`);
-      }
-    });
-    console.log('Meta description field used:', detectedFieldName);
-    console.log('Meta description value:', metaDescriptionValue ? metaDescriptionValue.substring(0, 100) : '(empty)');
-    console.log('===============================');
-    
     const blogType = detectBlogType(blogTitle);
     
     // Select appropriate research prompt based on blog type
     let selectedResearchPrompt;
-    let blogTypeLabel;
     if (blogType === 'BOFU') {
       selectedResearchPrompt = BOFU_RESEARCH_PROMPT;
-      blogTypeLabel = 'BOFU (Comparison/Review)';
     } else if (blogType === 'TOFU') {
       selectedResearchPrompt = TOFU_RESEARCH_PROMPT;
-      blogTypeLabel = 'TOFU (Educational)';
     } else {
       selectedResearchPrompt = MOFU_RESEARCH_PROMPT;
-      blogTypeLabel = 'MOFU (How-To/Guide)';
     }
     
     setStatus({ type: 'info', message: 'Smart analysis in progress (15-20s)...' });
     const fullOriginalContent = blog.fieldData['post-body'] || '';
     
-    // Debug: Check for links in original content
-    const linkMatches = fullOriginalContent.match(/<a\s+[^>]*href=/gi);
-    console.log('=== LINK DETECTION ===');
-    console.log(`Found ${linkMatches ? linkMatches.length : 0} links in original Webflow content`);
-    if (linkMatches && linkMatches.length > 0) {
-      console.log('Sample links:', fullOriginalContent.match(/<a\s+[^>]*>.*?<\/a>/gi)?.slice(0, 3));
-    }
-    console.log('======================');
-    
     try {
-      const gscKeywords = getGscKeywordsForBlog(blog);
-      
       const response = await fetch(`${BACKEND_URL}/api/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1432,22 +1446,18 @@ export default function ContentOps() {
           anthropicKey: config.anthropicKey,
           braveKey: config.braveKey,
           researchPrompt: selectedResearchPrompt,
-          writingPrompt: WRITING_PROMPT,
-          gscKeywords: gscKeywords ? gscKeywords.keywords : null
+          writingPrompt: WRITING_PROMPT
         })
       });
+      
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.error || 'Analysis failed');
       }
+      
       const data = await response.json();
       let updatedContent = data.content || fullOriginalContent;
       updatedContent = updatedContent.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-      
-      // Count links in updated content
-      const updatedLinkMatches = updatedContent.match(/<a\s+[^>]*href=/gi);
-      const linkCount = updatedLinkMatches ? updatedLinkMatches.length : 0;
-      console.log(`Links preserved in updated content: ${linkCount}`);
       
       const highlighted = createHighlightedHTML(fullOriginalContent, updatedContent);
       setHighlightedData(highlighted);
@@ -1459,8 +1469,7 @@ export default function ContentOps() {
         content: updatedContent,
         originalContent: fullOriginalContent,
         duration: data.duration || 0,
-        blogType: blogType,
-        linkCount: linkCount
+        blogType: blogType
       });
       setEditedContent(updatedContent);
       setShowHighlights(true);
@@ -1474,7 +1483,106 @@ export default function ContentOps() {
     }
   };
 
-  // NEW: Fix malformed lists before publishing
+  // 🆕 Analyze with GSC keywords
+  const continueAnalyzeWithKeywords = async (selectedKeywords) => {
+    setShowKeywordPopup(false);
+    setLoading(true);
+    setView('review');
+    setStatus({ type: 'info', message: `Analyzing with ${selectedKeywords.length} keywords...` });
+    
+    const blog = selectedBlog;
+    const fullOriginalContent = blog.fieldData['post-body'] || '';
+    
+    // Set up metadata
+    const blogTitle = blog.fieldData.name;
+    setBlogTitle(blogTitle);
+    
+    const fieldChecks = ['excerpt', 'post-summary', 'summary', 'meta-description', 'description', 'seo-description'];
+    let metaDescriptionValue = '';
+    let detectedFieldName = 'post-summary';
+    
+    for (const fieldName of fieldChecks) {
+      if (blog.fieldData[fieldName]) {
+        metaDescriptionValue = blog.fieldData[fieldName];
+        detectedFieldName = fieldName;
+        break;
+      }
+    }
+    
+    setMetaDescription(metaDescriptionValue);
+    setMetaFieldName(detectedFieldName);
+    
+    const blogType = detectBlogType(blogTitle);
+    let selectedResearchPrompt;
+    if (blogType === 'BOFU') {
+      selectedResearchPrompt = BOFU_RESEARCH_PROMPT;
+    } else if (blogType === 'TOFU') {
+      selectedResearchPrompt = TOFU_RESEARCH_PROMPT;
+    } else {
+      selectedResearchPrompt = MOFU_RESEARCH_PROMPT;
+    }
+    
+    try {
+      const gscInfo = getGscKeywordsForBlog(blog);
+      
+      const response = await fetch(`${BACKEND_URL}/api/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          blogContent: fullOriginalContent,
+          title: blogTitle,
+          anthropicKey: config.anthropicKey,
+          braveKey: config.braveKey,
+          researchPrompt: selectedResearchPrompt,
+          writingPrompt: WRITING_PROMPT,
+          gscKeywords: selectedKeywords,
+          gscPosition: gscInfo ? gscInfo.position : null
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Server error: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data.error) {
+        throw new Error(data.error);
+      }
+      
+      let updatedContent = data.content || fullOriginalContent;
+      updatedContent = updatedContent.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      
+      const highlighted = createHighlightedHTML(fullOriginalContent, updatedContent);
+      setHighlightedData(highlighted);
+      
+      setResult({
+        changes: data.changes || [],
+        searchesUsed: data.searchesUsed || 0,
+        claudeCalls: data.claudeCalls || 0,
+        sectionsUpdated: data.sectionsUpdated || 0,
+        content: updatedContent,
+        originalContent: fullOriginalContent,
+        duration: data.duration || 0,
+        blogType: blogType,
+        gscOptimized: true
+      });
+      
+      setEditedContent(updatedContent);
+      setShowHighlights(true);
+      setStatus({ type: 'success', message: `✅ Analysis complete with ${selectedKeywords.length} keywords!` });
+      setViewMode('changes');
+      setLoading(false);
+      
+    } catch (error) {
+      console.error('Analysis error:', error);
+      setStatus({ type: 'error', message: error.message || 'Failed to analyze blog' });
+      setLoading(false);
+      setView('dashboard');
+    }
+  };
+
+  // Fix malformed lists before publishing
   const sanitizeListHTML = (html) => {
     const parser = new DOMParser();
     const doc = parser.parseFromString(`<div>${html}</div>`, 'text/html');
@@ -1697,10 +1805,10 @@ export default function ContentOps() {
           <div className="text-center max-w-4xl mx-auto">
             <div className="mb-8">
               <div className="inline-block px-4 py-2 bg-[#0ea5e9] bg-opacity-10 rounded-full border border-[#0ea5e9] border-opacity-30 mb-6">
-                <span className="text-[#0ea5e9] text-sm font-semibold">Powered by Brave Search + Claude AI</span>
+                <span className="text-[#0ea5e9] text-sm font-semibold">Powered by Brave Search + Claude AI + GSC</span>
               </div>
               <h1 className="text-6xl font-bold text-[#0f172a] mb-4">Smart Content<br /><span className="text-[#0ea5e9]">Fact-Checking</span></h1>
-              <p className="text-xl text-gray-600">Brave Search • AI-powered rewrites • Full blog diff view</p>
+              <p className="text-xl text-gray-600">Brave Search • AI-powered rewrites • GSC Keywords • Full blog diff view</p>
             </div>
             <button onClick={() => setView(savedConfig ? 'dashboard' : 'setup')} className="bg-[#0ea5e9] text-white px-10 py-4 rounded-lg text-lg font-bold hover:bg-[#0284c7] shadow-lg">
               {savedConfig ? 'Go to Dashboard →' : 'Get Started →'}
@@ -1731,10 +1839,15 @@ export default function ContentOps() {
             <div className="flex items-center justify-between mb-8">
               <h2 className="text-3xl font-bold text-[#0f172a]">Your Blog Posts</h2>
               <div className="flex items-center gap-3">
-                <button onClick={() => { console.log('GSC button clicked'); setShowGscModal(true); }} disabled={loading} className="bg-purple-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-purple-700 text-sm">
+                {/* 🆕 GSC Upload Button */}
+                <button 
+                  onClick={() => setShowGscModal(true)} 
+                  className="bg-purple-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-purple-700 text-sm font-semibold"
+                >
                   <TrendingUp className="w-4 h-4" />
                   {gscData ? `GSC: ${gscData.blogsCount || gscData.totalMatches} blogs` : 'Upload GSC Data'}
                 </button>
+                
                 <button onClick={testWebflowConnection} disabled={loading} className="bg-blue-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-600 text-sm">
                   <Zap className="w-4 h-4" />
                   Test Connection
@@ -1757,17 +1870,16 @@ export default function ContentOps() {
               <div className="text-center py-12"><Loader className="w-12 h-12 text-[#0ea5e9] animate-spin mx-auto mb-4" /><p className="text-gray-600">Loading...</p></div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {blogs.map(blog => (
-                  <div key={blog.id} className="bg-white rounded-xl p-6 border shadow-sm hover:shadow-md transition-all">
-                    <h3 className="font-semibold text-[#0f172a] mb-2 line-clamp-2">{blog.fieldData.name}</h3>
-                    <p className="text-sm text-gray-600 mb-4 line-clamp-3">{blog.fieldData['post-summary'] || 'No description'}</p>
-                    
-                    {/* GSC Data Display */}
-                    {(() => {
-                      const gscInfo = getGscKeywordsForBlog(blog);
-                      if (!gscInfo) return null;
+                {blogs.map(blog => {
+                  const gscInfo = getGscKeywordsForBlog(blog);
+                  
+                  return (
+                    <div key={blog.id} className="bg-white rounded-xl p-6 border shadow-sm hover:shadow-md transition-all">
+                      <h3 className="font-semibold text-[#0f172a] mb-2 line-clamp-2">{blog.fieldData.name}</h3>
+                      <p className="text-sm text-gray-600 mb-4 line-clamp-3">{blog.fieldData['post-summary'] || 'No description'}</p>
                       
-                      return (
+                      {/* 🆕 GSC Data Display */}
+                      {gscInfo && (
                         <div className="mb-4 space-y-2">
                           <div className="flex items-center gap-2 text-xs bg-purple-50 border border-purple-200 rounded px-3 py-2">
                             <TrendingUp className="w-3 h-3 text-purple-600" />
@@ -1783,12 +1895,12 @@ export default function ContentOps() {
                             </div>
                           )}
                         </div>
-                      );
-                    })()}
-                    
-                    <button onClick={() => analyzeBlog(blog)} disabled={loading} className="w-full bg-[#0ea5e9] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#0284c7] disabled:opacity-50">{loading && selectedBlog?.id === blog.id ? <Loader className="w-4 h-4 animate-spin mx-auto" /> : '⚡ Smart Check'}</button>
-                  </div>
-                ))}
+                      )}
+                      
+                      <button onClick={() => analyzeBlog(blog)} disabled={loading} className="w-full bg-[#0ea5e9] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#0284c7] disabled:opacity-50">{loading && selectedBlog?.id === blog.id ? <Loader className="w-4 h-4 animate-spin mx-auto" /> : '⚡ Smart Check'}</button>
+                    </div>
+                  );
+                })}
               </div>
             )}
             {status.message && (
@@ -1816,368 +1928,209 @@ export default function ContentOps() {
           </div>
         )}
 
-        {view === 'review' && result && (
-          <div className="space-y-6">
-            {/* Title and Meta Description Editor */}
-            <div className="bg-white rounded-xl p-6 border shadow-lg">
-              <h3 className="text-xl font-bold text-[#0f172a] mb-4">📋 SEO Metadata</h3>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Title</label>
-                  <input 
-                    type="text" 
-                    value={blogTitle} 
-                    onChange={(e) => setBlogTitle(e.target.value)}
-                    className="w-full bg-gray-50 border rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#0ea5e9]"
-                    placeholder="Blog post title"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">{blogTitle.length} characters</p>
-                </div>
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="block text-sm font-semibold text-gray-700">Meta Description</label>
-                    <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
-                      Field: {metaFieldName}
-                    </span>
-                  </div>
-                  <textarea 
-                    value={metaDescription} 
-                    onChange={(e) => setMetaDescription(e.target.value)}
-                    className="w-full bg-gray-50 border rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#0ea5e9] resize-none"
-                    rows="3"
-                    placeholder="Brief description for search engines"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">{metaDescription.length} characters</p>
-                  {!metaDescription && (
-                    <div className="mt-2 p-3 bg-yellow-50 border border-yellow-200 rounded">
-                      <p className="text-xs text-yellow-800 font-semibold mb-1">⚠️ No meta description found</p>
-                      <p className="text-xs text-yellow-700 mb-2">
-                        The field "<strong>{metaFieldName}</strong>" is empty in Webflow. 
-                        Open browser console (F12) to see all available fields or add a description manually here.
-                      </p>
-                      <button 
-                        onClick={() => {
-                          console.log('=== MANUAL FIELD CHECK ===');
-                          console.log('Available fields:', Object.keys(selectedBlog.fieldData));
-                          console.log('Current field being used:', metaFieldName);
-                          console.log('All field values:');
-                          Object.entries(selectedBlog.fieldData).forEach(([key, value]) => {
-                            if (typeof value === 'string') {
-                              console.log(`  ${key}: ${value.substring(0, 100)}${value.length > 100 ? '...' : ''}`);
-                            }
-                          });
-                          alert('Check browser console (F12) for field details');
-                        }}
-                        className="text-xs bg-yellow-600 text-white px-3 py-1 rounded hover:bg-yellow-700"
-                      >
-                        📋 Show All Fields in Console
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
+        {/* REST OF YOUR VIEWS - Continue from here with review, success, etc. */}
 
-            <div className="bg-white rounded-xl p-6 border shadow-lg">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-2xl font-bold text-[#0f172a]">📄 Content Editor</h3>
-              </div>
-                <div className="space-y-6">
-                  <div className="flex items-center justify-between">
-                    <div className="px-4 py-2 bg-blue-50 border border-blue-200 rounded-lg flex-1 mr-3">
-                      <p className="text-blue-800 text-sm">✨ <span className="font-semibold">Edit directly!</span> {showHighlights && highlightedData?.changesCount > 0 && <span>• <span className="font-semibold">{highlightedData?.changesCount} real content {highlightedData?.changesCount === 1 ? 'change' : 'changes'}</span> highlighted</span>}</p>
-                    </div>
-                    <button onClick={() => setShowHighlights(!showHighlights)} className={`px-4 py-2 rounded-lg text-sm font-semibold whitespace-nowrap ${showHighlights ? 'bg-blue-500 text-white' : 'bg-white border'}`}>{showHighlights ? '✨ Hide' : '👁️ Show'}</button>
-                  </div>
-                  
-                  <div className="bg-white rounded-xl p-6 border-2 border-[#0ea5e9] shadow-lg">
-                    <style>{`
-                      .blog-content h1 {
-                        font-size: 2.25rem !important;
-                        line-height: 2.5rem !important;
-                        font-weight: 700 !important;
-                        margin: 2rem 0 1rem 0 !important;
-                        color: #0f172a !important;
-                      }
-                      .blog-content h2 {
-                        font-size: 1.875rem !important;
-                        line-height: 2.25rem !important;
-                        font-weight: 700 !important;
-                        margin: 1.75rem 0 1rem 0 !important;
-                        color: #0f172a !important;
-                      }
-                      .blog-content h3 {
-                        font-size: 1.5rem !important;
-                        line-height: 2rem !important;
-                        font-weight: 600 !important;
-                        margin: 1.5rem 0 0.75rem 0 !important;
-                        color: #1e293b !important;
-                      }
-                      .blog-content h4 {
-                        font-size: 1.25rem !important;
-                        line-height: 1.75rem !important;
-                        font-weight: 600 !important;
-                        margin: 1.25rem 0 0.5rem 0 !important;
-                        color: #1e293b !important;
-                      }
-                      .blog-content img {
-                        max-width: 100%;
-                        height: auto;
-                        display: block;
-                        margin: 1rem 0;
-                        cursor: pointer;
-                      }
-                      .blog-content iframe {
-                        max-width: 100%;
-                        width: 100%;
-                        min-height: 400px;
-                        margin: 1.5rem 0;
-                        border: 1px solid #e5e7eb;
-                        border-radius: 8px;
-                      }
-                      .blog-content embed,
-                      .blog-content object {
-                        max-width: 100%;
-                        margin: 1.5rem 0;
-                      }
-                      .blog-content script {
-                        display: block;
-                      }
-                      /* Override hidden class for widget content */
-                      .blog-content .info-widget .hidden,
-                      .blog-content [class*="widget"] .hidden,
-                      .blog-content [class*="-widget"] .hidden,
-                      .blog-content [class*="w-embed"] .hidden,
-                      .blog-content [class*="w-widget"] .hidden {
-                        display: block !important;
-                        visibility: visible !important;
-                      }
-                      /* Generic styling for ALL widget types */
-                      .blog-content [class*="-widget"],
-                      .blog-content [class*="widget-"] {
-                        margin: 1.5rem 0;
-                        padding: 1.5rem;
-                        border-radius: 6px;
-                      }
-                      /* Style info-widget boxes (purple/indigo) */
-                      .blog-content .info-widget,
-                      .blog-content [class*="info-widget"] {
-                        background-color: #f5f3ff;
-                        border-left: 4px solid #8b5cf6;
-                      }
-                      /* Style warning/caution widgets (yellow/orange) */
-                      .blog-content .warning-widget,
-                      .blog-content .caution-widget,
-                      .blog-content [class*="warning-widget"],
-                      .blog-content [class*="caution-widget"] {
-                        background-color: #fef3c7;
-                        border-left: 4px solid #f59e0b;
-                      }
-                      /* Style success/tip widgets (green) */
-                      .blog-content .success-widget,
-                      .blog-content .tip-widget,
-                      .blog-content [class*="success-widget"],
-                      .blog-content [class*="tip-widget"] {
-                        background-color: #d1fae5;
-                        border-left: 4px solid #10b981;
-                      }
-                      /* Style error/danger widgets (red) */
-                      .blog-content .error-widget,
-                      .blog-content .danger-widget,
-                      .blog-content [class*="error-widget"],
-                      .blog-content [class*="danger-widget"] {
-                        background-color: #fee2e2;
-                        border-left: 4px solid #ef4444;
-                      }
-                      /* Generic widget heading styles */
-                      .blog-content [class*="widget-heading"],
-                      .blog-content [class*="-widget-heading"] {
-                        font-size: 1.125rem;
-                        font-weight: 600;
-                        margin: 0 0 0.75rem 0;
-                      }
-                      .blog-content .info-widget [class*="heading"] {
-                        color: #8b5cf6;
-                      }
-                      .blog-content .warning-widget [class*="heading"],
-                      .blog-content .caution-widget [class*="heading"] {
-                        color: #f59e0b;
-                      }
-                      .blog-content .success-widget [class*="heading"],
-                      .blog-content .tip-widget [class*="heading"] {
-                        color: #10b981;
-                      }
-                      .blog-content .error-widget [class*="heading"],
-                      .blog-content .danger-widget [class*="heading"] {
-                        color: #ef4444;
-                      }
-                      /* Generic widget content styles */
-                      .blog-content [class*="widget-content"],
-                      .blog-content [class*="-widget-content"] {
-                        color: #1e293b;
-                        line-height: 1.7;
-                      }
-                      .blog-content [class*="widget-content"] p,
-                      .blog-content [class*="-widget-content"] p {
-                        margin: 0;
-                      }
-                      /* Widget type labels */
-                      .blog-content .widget-type,
-                      .blog-content [class*="widget-type"] {
-                        display: inline-block;
-                        font-size: 0.875rem;
-                        font-weight: 600;
-                        text-transform: uppercase;
-                        letter-spacing: 0.05em;
-                        margin-bottom: 0.5rem;
-                      }
-                      .blog-content .info-widget .widget-type {
-                        color: #8b5cf6;
-                      }
-                      .blog-content .warning-widget .widget-type,
-                      .blog-content .caution-widget .widget-type {
-                        color: #f59e0b;
-                      }
-                      .blog-content .success-widget .widget-type,
-                      .blog-content .tip-widget .widget-type {
-                        color: #10b981;
-                      }
-                      .blog-content .error-widget .widget-type,
-                      .blog-content .danger-widget .widget-type {
-                        color: #ef4444;
-                      }
-                      .blog-content [class*="widget"],
-                      .blog-content [class*="w-embed"],
-                      .blog-content [class*="w-widget"],
-                      .blog-content [data-w-id],
-                      .blog-content [data-widget] {
-                        margin: 1.5rem 0;
-                        max-width: 100%;
-                      }
-                      .blog-content table {
-                        width: 100%;
-                        border-collapse: collapse;
-                        margin: 1.5rem 0;
-                        border: 1px solid #e5e7eb;
-                      }
-                      .blog-content th {
-                        background-color: #f3f4f6;
-                        padding: 0.75rem;
-                        border: 1px solid #e5e7eb;
-                        font-weight: 600;
-                      }
-                      .blog-content td {
-                        padding: 0.75rem;
-                        border: 1px solid #e5e7eb;
-                      }
-                      .blog-content p {
-                        margin: 0.75rem 0;
-                        line-height: 1.7;
-                      }
-                      .blog-content ul, .blog-content ol {
-                        margin: 1rem 0;
-                        padding-left: 2rem;
-                      }
-                      .blog-content ul {
-                        list-style-type: disc;
-                      }
-                      .blog-content ol {
-                        list-style-type: decimal;
-                      }
-                      .blog-content li {
-                        margin: 0.5rem 0;
-                        line-height: 1.7;
-                        display: list-item;
-                      }
-                      .blog-content a {
-                        color: #0ea5e9;
-                        text-decoration: underline;
-                        cursor: pointer;
-                        pointer-events: auto;
-                        position: relative;
-                      }
-                      .blog-content a:hover {
-                        color: #0284c7;
-                        text-decoration: underline;
-                        background-color: rgba(14, 165, 233, 0.1);
-                      }
-                      .blog-content a::after {
-                        content: "✏️";
-                        font-size: 0.7em;
-                        margin-left: 4px;
-                        opacity: 0;
-                        transition: opacity 0.2s;
-                      }
-                      .blog-content a:hover::after {
-                        opacity: 0.6;
-                      }
-                    `}</style>
-                    <div className="text-[#0ea5e9] text-sm font-bold mb-2">📝 EDITABLE CONTENT</div>
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-2 p-3 bg-gray-50 border rounded-lg flex-wrap flex-1">
-                        <button onClick={() => formatText('bold')} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 font-bold text-sm" title="Bold">B</button>
-                        <button onClick={() => formatText('italic')} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 italic text-sm" title="Italic">I</button>
-                        <div className="w-px h-6 bg-gray-300"></div>
-                        <button onClick={() => formatHeading(1)} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm font-bold" title="Heading 1">H1</button>
-                        <button onClick={() => formatHeading(2)} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm font-bold" title="Heading 2">H2</button>
-                        <button onClick={() => formatHeading(3)} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Heading 3">H3</button>
-                        <button onClick={() => formatHeading(4)} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Heading 4">H4</button>
-                        <div className="w-px h-6 bg-gray-300"></div>
-                        <button onClick={() => formatList('bullet')} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Bullet List">• List</button>
-                        <button onClick={() => formatList('numbered')} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Numbered List">1. List</button>
-                        <div className="w-px h-6 bg-gray-300"></div>
-                        <button onClick={insertLink} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Add Link">🔗</button>
-                        <button onClick={insertImage} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Add Image">🖼️</button>
-                      </div>
-                      <div className="ml-3 px-3 py-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-700 whitespace-nowrap">
-                        💡 Click links to edit • Ctrl+Click to open
-                      </div>
-                    </div>
-                    <div ref={afterViewRef} className="blog-content text-gray-800 overflow-y-auto bg-white rounded-lg p-6 min-h-[600px]" contentEditable={true} suppressContentEditableWarning={true} onInput={handleAfterViewInput} onClick={handleContentClick} style={{ maxHeight: '800px', outline: 'none', cursor: 'text' }} />
-                  </div>
-                </div>
+{view === 'review' && result && (
+  <div className="space-y-6">
+    {/* 🆕 Show GSC Keywords Used (if any) */}
+    {result?.gscKeywordsUsed && result.gscKeywordsUsed.length > 0 && (
+      <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+        <div className="flex items-center justify-between">
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-purple-800 mb-2">
+              🎯 Optimized with {result.gscKeywordsUsed.length} GSC keywords
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {result.gscKeywordsUsed.slice(0, 8).map((kw, i) => (
+                <span key={i} className="text-xs bg-white px-3 py-1 rounded border border-purple-300 text-purple-700">
+                  {kw.query}
+                </span>
+              ))}
+              {result.gscKeywordsUsed.length > 8 && (
+                <span className="text-xs text-purple-600 px-2 py-1">
+                  +{result.gscKeywordsUsed.length - 8} more
+                </span>
               )}
             </div>
-            
-            <div className="flex gap-4">
-              <button onClick={() => setView('dashboard')} className="flex-1 bg-gray-100 text-gray-700 py-4 rounded-lg font-semibold hover:bg-gray-200">← Cancel</button>
-              <button onClick={publishToWebflow} disabled={loading} className="flex-1 bg-[#0ea5e9] text-white py-4 px-8 rounded-lg font-semibold hover:bg-[#0284c7] disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg">{loading ? <><Loader className="w-5 h-5 animate-spin" />{status.message.includes('Retry') ? status.message : 'Publishing...'}</> : <><CheckCircle className="w-5 h-5" />Publish to Webflow</>}</button>
-            </div>
-            
-            {/* Error/Status Display */}
-            {status.message && status.type === 'error' && (
-              <div className="bg-red-50 border-2 border-red-200 rounded-xl p-6">
-                <div className="flex items-start gap-3">
-                  <AlertCircle className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" />
-                  <div className="flex-1">
-                    <h4 className="font-bold text-red-900 mb-2">Publishing Failed</h4>
-                    <p className="text-red-800 text-sm mb-3">{status.message}</p>
-                    <div className="bg-white border border-red-200 rounded-lg p-4 mb-3">
-                      <p className="font-semibold text-red-900 mb-2">💡 Backup Option:</p>
-                      <p className="text-red-700 text-sm mb-3">
-                        If publishing keeps failing, you can use the button below to copy the HTML and publish via your n8n workflow.
-                      </p>
-                      <button 
-                        onClick={copyHTMLToClipboard}
-                        className="bg-purple-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-purple-700 text-sm font-semibold"
-                        title="Copy HTML for n8n workflow"
-                      >
-                        <Copy className="w-4 h-4" />
-                        Copy HTML for n8n
-                      </button>
-                    </div>
-                    <button 
-                      onClick={publishToWebflow} 
-                      className="mt-4 bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-red-700"
-                    >
-                      Try Again
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
-        )}
+          <button 
+            onClick={() => {
+              // Copy blog info to clipboard for easy pasting
+              const keywords = result.gscKeywordsUsed.map(k => k.query).join(', ');
+              const reportInfo = `Blog: ${blogTitle}\nKeywords: ${keywords}`;
+              
+              navigator.clipboard.writeText(reportInfo).then(() => {
+                // Open Google Sheet
+                window.open('https://docs.google.com/spreadsheets/d/1UZ6K-Y53W_VBXAW6_0iHan2nqrUbXu3GzYTIQjAImFA/edit?usp=sharing', '_blank');
+                setStatus({ 
+                  type: 'success', 
+                  message: '📋 Blog info copied! Opening report sheet... Paste the info and describe the issue.' 
+                });
+                
+                // Clear status after 5 seconds
+                setTimeout(() => setStatus({ type: '', message: '' }), 5000);
+              }).catch(() => {
+                // If clipboard fails, still open sheet
+                window.open('https://docs.google.com/spreadsheets/d/1UZ6K-Y53W_VBXAW6_0iHan2nqrUbXu3GzYTIQjAImFA/edit?usp=sharing', '_blank');
+                setStatus({ type: 'info', message: '📝 Opening report sheet...' });
+              });
+            }}
+            className="text-xs bg-red-100 text-red-700 px-4 py-2 rounded hover:bg-red-200 font-semibold ml-4 whitespace-nowrap"
+            title="Report incorrect keywords (copies info to clipboard)"
+          >
+            Report Issue
+          </button>
+        </div>
+      </div>
+    )}
+    
+    {/* Title and Meta Description Editor */}
+    <div className="bg-white rounded-xl p-6 border shadow-lg">
+      <h3 className="text-xl font-bold text-[#0f172a] mb-4">📋 SEO Metadata</h3>
+      <div className="space-y-4">
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-2">Title</label>
+          <input 
+            type="text" 
+            value={blogTitle} 
+            onChange={(e) => setBlogTitle(e.target.value)}
+            className="w-full bg-gray-50 border rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#0ea5e9]"
+            placeholder="Blog post title"
+          />
+          <p className="text-xs text-gray-500 mt-1">{blogTitle.length} characters</p>
+        </div>
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <label className="block text-sm font-semibold text-gray-700">Meta Description</label>
+            <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
+              Field: {metaFieldName}
+            </span>
+          </div>
+          <textarea 
+            value={metaDescription} 
+            onChange={(e) => setMetaDescription(e.target.value)}
+            className="w-full bg-gray-50 border rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#0ea5e9] resize-none"
+            rows="3"
+            placeholder="Brief description for search engines"
+          />
+          <p className="text-xs text-gray-500 mt-1">{metaDescription.length} characters</p>
+        </div>
+      </div>
+    </div>
+
+    <div className="bg-white rounded-xl p-6 border shadow-lg">
+      <div className="flex items-center justify-between mb-6">
+        <h3 className="text-2xl font-bold text-[#0f172a]">📄 Content Editor</h3>
+        <button 
+          onClick={copyHTMLToClipboard}
+          className="bg-purple-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-purple-700 text-sm font-semibold"
+          title="Copy HTML for n8n workflow"
+        >
+          <Copy className="w-4 h-4" />
+          Copy HTML
+        </button>
+      </div>
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div className="px-4 py-2 bg-blue-50 border border-blue-200 rounded-lg flex-1 mr-3">
+            <p className="text-blue-800 text-sm">✨ <span className="font-semibold">Edit directly!</span> {showHighlights && highlightedData?.changesCount > 0 && <span>• <span className="font-semibold">{highlightedData?.changesCount} real content {highlightedData?.changesCount === 1 ? 'change' : 'changes'}</span> highlighted</span>}</p>
+          </div>
+          <button onClick={() => setShowHighlights(!showHighlights)} className={`px-4 py-2 rounded-lg text-sm font-semibold whitespace-nowrap ${showHighlights ? 'bg-blue-500 text-white' : 'bg-white border'}`}>{showHighlights ? '✨ Hide' : '👁️ Show'}</button>
+        </div>
+        
+        <div className="bg-white rounded-xl p-6 border-2 border-[#0ea5e9] shadow-lg">
+          <style>{`
+            .blog-content h1 {
+              font-size: 2.25rem !important;
+              line-height: 2.5rem !important;
+              font-weight: 700 !important;
+              margin: 2rem 0 1rem 0 !important;
+              color: #0f172a !important;
+            }
+            .blog-content h2 {
+              font-size: 1.875rem !important;
+              line-height: 2.25rem !important;
+              font-weight: 700 !important;
+              margin: 1.75rem 0 1rem 0 !important;
+              color: #0f172a !important;
+            }
+            .blog-content h3 {
+              font-size: 1.5rem !important;
+              line-height: 2rem !important;
+              font-weight: 600 !important;
+              margin: 1.5rem 0 0.75rem 0 !important;
+              color: #1e293b !important;
+            }
+            .blog-content h4 {
+              font-size: 1.25rem !important;
+              line-height: 1.75rem !important;
+              font-weight: 600 !important;
+              margin: 1.25rem 0 0.5rem 0 !important;
+              color: #1e293b !important;
+            }
+            .blog-content img {
+              max-width: 100%;
+              height: auto;
+              display: block;
+              margin: 1rem 0;
+              cursor: pointer;
+            }
+            .blog-content p {
+              margin: 0.75rem 0;
+              line-height: 1.7;
+            }
+            .blog-content ul, .blog-content ol {
+              margin: 1rem 0;
+              padding-left: 2rem;
+            }
+            .blog-content ul {
+              list-style-type: disc;
+            }
+            .blog-content ol {
+              list-style-type: decimal;
+            }
+            .blog-content li {
+              margin: 0.5rem 0;
+              line-height: 1.7;
+              display: list-item;
+            }
+            .blog-content a {
+              color: #0ea5e9;
+              text-decoration: underline;
+              cursor: pointer;
+              pointer-events: auto;
+            }
+            .blog-content a:hover {
+              color: #0284c7;
+              background-color: rgba(14, 165, 233, 0.1);
+            }
+          `}</style>
+          <div className="text-[#0ea5e9] text-sm font-bold mb-2">📝 EDITABLE CONTENT</div>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2 p-3 bg-gray-50 border rounded-lg flex-wrap flex-1">
+              <button onClick={() => formatText('bold')} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 font-bold text-sm" title="Bold">B</button>
+              <button onClick={() => formatText('italic')} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 italic text-sm" title="Italic">I</button>
+              <div className="w-px h-6 bg-gray-300"></div>
+              <button onClick={() => formatHeading(1)} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm font-bold" title="Heading 1">H1</button>
+              <button onClick={() => formatHeading(2)} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm font-bold" title="Heading 2">H2</button>
+              <button onClick={() => formatHeading(3)} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Heading 3">H3</button>
+              <button onClick={() => formatHeading(4)} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Heading 4">H4</button>
+              <div className="w-px h-6 bg-gray-300"></div>
+              <button onClick={() => formatList('bullet')} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Bullet List">• List</button>
+              <button onClick={() => formatList('numbered')} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Numbered List">1. List</button>
+              <div className="w-px h-6 bg-gray-300"></div>
+              <button onClick={insertLink} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Add Link">🔗</button>
+              <button onClick={insertImage} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Add Image">🖼️</button>
+            </div>
+            <div className="ml-3 px-3 py-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-700 whitespace-nowrap">
+              💡 Click links to edit • Ctrl+Click to open
+            </div>
+          </div>
+          <div ref={afterViewRef} className="blog-content text-gray-800 overflow-y-auto bg-white rounded-lg p-6 min-h-[600px]" contentEditable={true} suppressContentEditableWarning={true} onInput={handleAfterViewInput} onClick={handleContentClick} style={{ maxHeight: '800px', outline: 'none', cursor: 'text' }} />
+        </div>
+      </div>
+    </div>
+
 
         {view === 'success' && (
           <div className="max-w-2xl mx-auto text-center py-12">
@@ -2187,7 +2140,173 @@ export default function ContentOps() {
             <button onClick={() => { setView('dashboard'); setResult(null); setSelectedBlog(null); }} className="bg-[#0ea5e9] text-white px-8 py-4 rounded-lg font-semibold hover:bg-[#0284c7] shadow-lg">← Back</button>
           </div>
         )}
+
       </div>
+
+
+      </div>
+
+      {/* 🆕 GSC Upload Modal */}
+      {showGscModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999]" onClick={() => setShowGscModal(false)}>
+          <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-xl font-bold mb-4">📊 Upload GSC Data</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Upload your XLSX file exported from Google Search Console (must include both Queries and Pages sheets).
+            </p>
+            
+            {status.message && status.type !== 'success' && (
+              <div className={`p-3 rounded-lg mb-4 ${
+                status.type === 'error' ? 'bg-red-50 text-red-800' :
+                'bg-blue-50 text-blue-800'
+              }`}>
+                {status.message}
+              </div>
+            )}
+            
+            {gscData && (
+              <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded">
+                <p className="text-sm text-green-800 font-semibold">
+                  ✅ {gscData.totalMatches || gscData.blogsCount} blogs with keywords
+                </p>
+              </div>
+            )}
+            
+            <input 
+              type="file" 
+              accept=".xlsx,.xls"
+              onChange={handleGscUpload}
+              disabled={gscUploading}
+              className="w-full bg-gray-50 border rounded px-4 py-3 mb-4 text-sm"
+            />
+            
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setShowGscModal(false)} 
+                className="flex-1 bg-gray-100 py-3 rounded font-semibold hover:bg-gray-200"
+              >
+                {gscData ? 'Done' : 'Cancel'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 🆕 Keyword Popup Modal */}
+      {showKeywordPopup && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999]" onClick={() => setShowKeywordPopup(false)}>
+          <div className="bg-white rounded-xl p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-xl font-bold mb-4">🎯 Optimize with Keywords</h3>
+            
+            {matchedKeywords.length > 0 && (
+              <div className="mb-4">
+                <p className="text-sm font-semibold text-gray-700 mb-2">Auto-matched keywords for this blog:</p>
+                <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 space-y-1 max-h-40 overflow-y-auto">
+                  {matchedKeywords.slice(0, 10).map((kw, idx) => (
+                    <div key={idx} className="text-xs flex items-center justify-between">
+                      <span className="text-purple-800">
+                        <span className="font-semibold">{idx + 1}.</span> {kw.query}
+                      </span>
+                      <span className="text-purple-600 text-xs">
+                        Pos {kw.position.toFixed(1)} • {Math.round(kw.clicks)} clicks
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            
+            <div className="mb-4">
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                Add custom keywords (optional):
+              </label>
+              <textarea
+                value={customKeywords}
+                onChange={(e) => setCustomKeywords(e.target.value)}
+                placeholder="Enter additional keywords (one per line)"
+                className="w-full h-24 px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                These will be added to the auto-matched keywords above
+              </p>
+            </div>
+            
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowKeywordPopup(false);
+                  continueAnalyzeWithoutKeywords(selectedBlog);
+                }}
+                className="flex-1 bg-gray-100 text-gray-700 py-3 rounded-lg font-semibold hover:bg-gray-200"
+              >
+                Skip Keywords
+              </button>
+              
+              <button
+                onClick={() => {
+                  // Combine matched + custom keywords
+                  const matched = matchedKeywords.map(k => k.query);
+                  const custom = customKeywords.split('\n').filter(k => k.trim());
+                  const allKeywords = [...matched, ...custom].filter((k, i, arr) => arr.indexOf(k) === i);
+                  
+                  console.log('Optimizing with keywords:', allKeywords);
+                  continueAnalyzeWithKeywords(allKeywords);
+                }}
+                className="flex-1 bg-purple-600 text-white py-3 rounded-lg font-semibold hover:bg-purple-700"
+              >
+                Optimize with {matchedKeywords.length + (customKeywords.split('\n').filter(k => k.trim()).length)} Keywords
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {
+
+      {showGscModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999]" onClick={() => setShowGscModal(false)}>
+          <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-xl font-bold mb-4">📊 Upload GSC Data</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Upload your XLSX file from Google Search Console (must include Queries and Pages sheets).
+            </p>
+            
+            {status.message && status.type !== 'success' && (
+              <div className={`p-3 rounded-lg mb-4 ${
+                status.type === 'error' ? 'bg-red-50 text-red-800' :
+                'bg-blue-50 text-blue-800'
+              }`}>
+                {status.message}
+              </div>
+            )}
+            
+            {gscData && (
+              <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded">
+                <p className="text-sm text-green-800 font-semibold">
+                  ✅ {gscData.blogsCount} blogs with keywords
+                </p>
+              </div>
+            )}
+            
+            <input 
+              type="file" 
+              accept=".xlsx,.xls"
+              onChange={handleGscUpload}
+              disabled={gscUploading}
+              className="w-full bg-gray-50 border rounded px-4 py-3 mb-4 text-sm"
+            />
+            
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setShowGscModal(false)} 
+                className="flex-1 bg-gray-100 py-3 rounded font-semibold hover:bg-gray-200"
+              >
+                {gscData ? 'Done' : 'Cancel'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {imageAltModal.show && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => setImageAltModal({ show: false, src: '', currentAlt: '', index: -1 })}>
@@ -2240,172 +2359,6 @@ export default function ContentOps() {
         </div>
       )}
 
-
-      {showKeywordPopup && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999]" onClick={() => setShowKeywordPopup(false)}>
-          <div className="bg-white rounded-xl p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-xl font-bold mb-4">🎯 Optimize with Keywords</h3>
-            
-            {matchedKeywords.length > 0 && (
-              <div className="mb-4">
-                <p className="text-sm font-semibold text-gray-700 mb-2">Auto-matched keywords for this blog:</p>
-                <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 space-y-1 max-h-40 overflow-y-auto">
-                  {matchedKeywords.slice(0, 10).map((kw, idx) => (
-                    <div key={idx} className="text-xs flex items-center justify-between">
-                      <span className="text-purple-800">
-                        <span className="font-semibold">{idx + 1}.</span> {kw.query}
-                      </span>
-                      <span className="text-purple-600 text-xs">
-                        Pos {kw.position.toFixed(1)} • {Math.round(kw.clicks)} clicks
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            
-            <div className="mb-4">
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Add custom keywords (optional):
-              </label>
-              <textarea
-                value={customKeywords}
-                onChange={(e) => setCustomKeywords(e.target.value)}
-                placeholder="Enter additional keywords (one per line)&#10;Example:&#10;linkedin automation tool&#10;sales robot pricing"
-                className="w-full h-24 px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                These will be added to the auto-matched keywords above
-              </p>
-            </div>
-            
-            <div className="flex gap-3">
-              <button
-                onClick={() => {
-                  setShowKeywordPopup(false);
-                  // Continue without keywords
-                  const analyze = async () => {
-                    setLoading(true);
-                    setView('review');
-                    const blog = selectedBlog;
-                    const fullOriginalContent = blog.fieldData['post-body'] || blog.fieldData['blog-content'] || '';
-                    
-                    try {
-                      const response = await fetch(`${BACKEND_URL}/api/analyze`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          blogContent: fullOriginalContent,
-                          title: blogTitle,
-                          anthropicKey: config.anthropicKey,
-                          braveKey: config.braveKey,
-                          researchPrompt: selectedResearchPrompt,
-                          writingPrompt: WRITING_PROMPT
-                        })
-                      });
-                      
-                      const data = await response.json();
-                      if (data.error) throw new Error(data.error);
-                      
-                      setOriginalContent(fullOriginalContent);
-                      setEditedContent(data.content);
-                      setResult(data);
-                      setStatus({ type: 'success', message: data.message || 'Analysis complete!' });
-                      setLoading(false);
-                    } catch (error) {
-                      setStatus({ type: 'error', message: error.message });
-                      setLoading(false);
-                      setView('dashboard');
-                    }
-                  };
-                  analyze();
-                }}
-                className="flex-1 bg-gray-100 text-gray-700 py-3 rounded-lg font-semibold hover:bg-gray-200"
-              >
-                Skip Keywords
-              </button>
-              
-              <button
-                onClick={() => {
-                  // Combine matched + custom keywords
-                  const matched = matchedKeywords.map(k => k.query);
-                  const custom = customKeywords.split('\n').filter(k => k.trim());
-                  const allKeywords = [...matched, ...custom].filter((k, i, arr) => arr.indexOf(k) === i);
-                  
-                  console.log('Optimizing with keywords:', allKeywords);
-                  continueAnalyzeWithKeywords(allKeywords);
-                }}
-                className="flex-1 bg-purple-600 text-white py-3 rounded-lg font-semibold hover:bg-purple-700"
-              >
-                Optimize with {matchedKeywords.length + (customKeywords.split('\n').filter(k => k.trim()).length)} Keywords
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-            {showGscModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999]" onClick={() => setShowGscModal(false)}>
-          <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-xl font-bold mb-4">📊 Upload GSC Data</h3>
-            <p className="text-sm text-gray-600 mb-4">
-              Upload your Google Search Console CSV export to optimize your blogs for SEO.
-            </p>
-            
-            <label className="block text-sm font-semibold mb-2">Choose CSV File</label>
-            <input 
-              type="file" 
-              accept=".xlsx,.xls,.csv" 
-              onChange={handleGscUpload}
-              disabled={gscUploading}
-              className="w-full bg-gray-50 border rounded px-4 py-3 mb-4" 
-            />
-            
-            {status.message && (
-              <div className={`p-3 rounded-lg mb-4 text-sm ${
-                status.type === 'success' ? 'bg-green-50 text-green-800 border border-green-200' :
-                status.type === 'error' ? 'bg-red-50 text-red-800 border border-red-200' :
-                'bg-blue-50 text-blue-800 border border-blue-200'
-              }`}>
-                {status.message}
-              </div>
-            )}
-            
-            {gscData && (
-              <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-4">
-                <p className="text-xs text-green-800 font-semibold">✅ Current GSC Data:</p>
-                <p className="text-xs text-green-700">
-                  {gscData.totalKeywords} keywords across {gscData.blogsCount} blogs
-                </p>
-              </div>
-            )}
-            
-            <div className="flex gap-3">
-              <button 
-                onClick={() => setShowGscModal(false)} 
-                disabled={gscUploading}
-                className="flex-1 bg-gray-100 py-3 rounded font-semibold"
-              >
-                {gscData ? 'Done' : 'Cancel'}
-              </button>
-              {gscData && (
-                <button 
-                  onClick={() => {
-                    localStorage.removeItem('contentops_gsc_data');
-                    setGscData(null);
-                    setStatus({ type: 'success', message: 'GSC data cleared' });
-                    setShowGscModal(false);
-                  }}
-                  className="flex-1 bg-red-500 text-white py-3 rounded font-semibold"
-                >
-                  Clear Data
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
       <footer className="bg-[#0f172a] text-white mt-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="flex flex-col md:flex-row justify-between items-center gap-4">
@@ -2419,8 +2372,8 @@ export default function ContentOps() {
               </div>
             </div>
             <div className="text-center md:text-right">
-              <p className="text-gray-400 text-sm">© 2025 ContentOps. All rights reserved.</p>
-              <p className="text-gray-500 text-xs mt-1">Powered by Brave Search + Claude AI</p>
+              <p className="text-gray-400 text-sm">© 2025 ContentOps</p>
+              <p className="text-gray-500 text-xs mt-1">Brave + Claude + GSC</p>
             </div>
           </div>
         </div>
