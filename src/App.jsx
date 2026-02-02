@@ -1930,7 +1930,7 @@ export default function ContentOps() {
 
         {/* REST OF YOUR VIEWS - Continue from here with review, success, etc. */}
 
-{view === 'review' && result && (
+        {view === 'review' && result && (
   <div className="space-y-6">
     {/* 🆕 Show GSC Keywords Used (if any) */}
     {result?.gscKeywordsUsed && result.gscKeywordsUsed.length > 0 && (
@@ -2144,7 +2144,6 @@ export default function ContentOps() {
       </div>
 
 
-      </div>
 
       {/* 🆕 GSC Upload Modal */}
       {showGscModal && (
@@ -2260,8 +2259,6 @@ export default function ContentOps() {
           </div>
         </div>
       )}
-
-    
 
       {showGscModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999]" onClick={() => setShowGscModal(false)}>
