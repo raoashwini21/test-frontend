@@ -1931,205 +1931,205 @@ export default function ContentOps() {
         {/* REST OF YOUR VIEWS - Continue from here with review, success, etc. */}
 
         {view === 'review' && result && (
-  <div className="space-y-6">
-    {/* 🆕 Show GSC Keywords Used (if any) */}
-    {result?.gscKeywordsUsed && result.gscKeywordsUsed.length > 0 && (
-      <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-        <div className="flex items-center justify-between">
-          <div className="flex-1">
-            <p className="text-sm font-semibold text-purple-800 mb-2">
-              🎯 Optimized with {result.gscKeywordsUsed.length} GSC keywords
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {result.gscKeywordsUsed.slice(0, 8).map((kw, i) => (
-                <span key={i} className="text-xs bg-white px-3 py-1 rounded border border-purple-300 text-purple-700">
-                  {kw.query}
-                </span>
-              ))}
-              {result.gscKeywordsUsed.length > 8 && (
-                <span className="text-xs text-purple-600 px-2 py-1">
-                  +{result.gscKeywordsUsed.length - 8} more
-                </span>
-              )}
-            </div>
-          </div>
-          <button 
-            onClick={() => {
-              // Copy blog info to clipboard for easy pasting
-              const keywords = result.gscKeywordsUsed.map(k => k.query).join(', ');
-              const reportInfo = `Blog: ${blogTitle}\nKeywords: ${keywords}`;
+          <div className="space-y-6">
+            {/* 🆕 Show GSC Keywords Used (if any) */}
+            {result?.gscKeywordsUsed && result.gscKeywordsUsed.length > 0 && (
+              <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-purple-800 mb-2">
+                      🎯 Optimized with {result.gscKeywordsUsed.length} GSC keywords
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {result.gscKeywordsUsed.slice(0, 8).map((kw, i) => (
+                        <span key={i} className="text-xs bg-white px-3 py-1 rounded border border-purple-300 text-purple-700">
+                          {kw.query}
+                        </span>
+                      ))}
+                      {result.gscKeywordsUsed.length > 8 && (
+                        <span className="text-xs text-purple-600 px-2 py-1">
+                          +{result.gscKeywordsUsed.length - 8} more
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      // Copy blog info to clipboard for easy pasting
+                      const keywords = result.gscKeywordsUsed.map(k => k.query).join(', ');
+                      const reportInfo = `Blog: ${blogTitle}\nKeywords: ${keywords}`;
               
-              navigator.clipboard.writeText(reportInfo).then(() => {
-                // Open Google Sheet
-                window.open('https://docs.google.com/spreadsheets/d/1UZ6K-Y53W_VBXAW6_0iHan2nqrUbXu3GzYTIQjAImFA/edit?usp=sharing', '_blank');
-                setStatus({ 
-                  type: 'success', 
-                  message: '📋 Blog info copied! Opening report sheet... Paste the info and describe the issue.' 
-                });
+                      navigator.clipboard.writeText(reportInfo).then(() => {
+                        // Open Google Sheet
+                        window.open('https://docs.google.com/spreadsheets/d/1UZ6K-Y53W_VBXAW6_0iHan2nqrUbXu3GzYTIQjAImFA/edit?usp=sharing', '_blank');
+                        setStatus({ 
+                          type: 'success', 
+                          message: '📋 Blog info copied! Opening report sheet... Paste the info and describe the issue.' 
+                        });
                 
-                // Clear status after 5 seconds
-                setTimeout(() => setStatus({ type: '', message: '' }), 5000);
-              }).catch(() => {
-                // If clipboard fails, still open sheet
-                window.open('https://docs.google.com/spreadsheets/d/1UZ6K-Y53W_VBXAW6_0iHan2nqrUbXu3GzYTIQjAImFA/edit?usp=sharing', '_blank');
-                setStatus({ type: 'info', message: '📝 Opening report sheet...' });
-              });
-            }}
-            className="text-xs bg-red-100 text-red-700 px-4 py-2 rounded hover:bg-red-200 font-semibold ml-4 whitespace-nowrap"
-            title="Report incorrect keywords (copies info to clipboard)"
-          >
-            Report Issue
-          </button>
-        </div>
-      </div>
-    )}
+                        // Clear status after 5 seconds
+                        setTimeout(() => setStatus({ type: '', message: '' }), 5000);
+                      }).catch(() => {
+                        // If clipboard fails, still open sheet
+                        window.open('https://docs.google.com/spreadsheets/d/1UZ6K-Y53W_VBXAW6_0iHan2nqrUbXu3GzYTIQjAImFA/edit?usp=sharing', '_blank');
+                        setStatus({ type: 'info', message: '📝 Opening report sheet...' });
+                      });
+                    }}
+                    className="text-xs bg-red-100 text-red-700 px-4 py-2 rounded hover:bg-red-200 font-semibold ml-4 whitespace-nowrap"
+                    title="Report incorrect keywords (copies info to clipboard)"
+                  >
+                    Report Issue
+                  </button>
+                </div>
+              </div>
+            )}
     
-    {/* Title and Meta Description Editor */}
-    <div className="bg-white rounded-xl p-6 border shadow-lg">
-      <h3 className="text-xl font-bold text-[#0f172a] mb-4">📋 SEO Metadata</h3>
-      <div className="space-y-4">
-        <div>
-          <label className="block text-sm font-semibold text-gray-700 mb-2">Title</label>
-          <input 
-            type="text" 
-            value={blogTitle} 
-            onChange={(e) => setBlogTitle(e.target.value)}
-            className="w-full bg-gray-50 border rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#0ea5e9]"
-            placeholder="Blog post title"
-          />
-          <p className="text-xs text-gray-500 mt-1">{blogTitle.length} characters</p>
-        </div>
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <label className="block text-sm font-semibold text-gray-700">Meta Description</label>
-            <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
-              Field: {metaFieldName}
-            </span>
-          </div>
-          <textarea 
-            value={metaDescription} 
-            onChange={(e) => setMetaDescription(e.target.value)}
-            className="w-full bg-gray-50 border rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#0ea5e9] resize-none"
-            rows="3"
-            placeholder="Brief description for search engines"
-          />
-          <p className="text-xs text-gray-500 mt-1">{metaDescription.length} characters</p>
-        </div>
-      </div>
-    </div>
+            {/* Title and Meta Description Editor */}
+            <div className="bg-white rounded-xl p-6 border shadow-lg">
+              <h3 className="text-xl font-bold text-[#0f172a] mb-4">📋 SEO Metadata</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Title</label>
+                  <input 
+                    type="text" 
+                    value={blogTitle} 
+                    onChange={(e) => setBlogTitle(e.target.value)}
+                    className="w-full bg-gray-50 border rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#0ea5e9]"
+                    placeholder="Blog post title"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">{blogTitle.length} characters</p>
+                </div>
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-sm font-semibold text-gray-700">Meta Description</label>
+                    <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
+                      Field: {metaFieldName}
+                    </span>
+                  </div>
+                  <textarea 
+                    value={metaDescription} 
+                    onChange={(e) => setMetaDescription(e.target.value)}
+                    className="w-full bg-gray-50 border rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#0ea5e9] resize-none"
+                    rows="3"
+                    placeholder="Brief description for search engines"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">{metaDescription.length} characters</p>
+                </div>
+              </div>
+            </div>
 
-    <div className="bg-white rounded-xl p-6 border shadow-lg">
-      <div className="flex items-center justify-between mb-6">
-        <h3 className="text-2xl font-bold text-[#0f172a]">📄 Content Editor</h3>
-        <button 
-          onClick={copyHTMLToClipboard}
-          className="bg-purple-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-purple-700 text-sm font-semibold"
-          title="Copy HTML for n8n workflow"
-        >
-          <Copy className="w-4 h-4" />
-          Copy HTML
-        </button>
-      </div>
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div className="px-4 py-2 bg-blue-50 border border-blue-200 rounded-lg flex-1 mr-3">
-            <p className="text-blue-800 text-sm">✨ <span className="font-semibold">Edit directly!</span> {showHighlights && highlightedData?.changesCount > 0 && <span>• <span className="font-semibold">{highlightedData?.changesCount} real content {highlightedData?.changesCount === 1 ? 'change' : 'changes'}</span> highlighted</span>}</p>
-          </div>
-          <button onClick={() => setShowHighlights(!showHighlights)} className={`px-4 py-2 rounded-lg text-sm font-semibold whitespace-nowrap ${showHighlights ? 'bg-blue-500 text-white' : 'bg-white border'}`}>{showHighlights ? '✨ Hide' : '👁️ Show'}</button>
-        </div>
+            <div className="bg-white rounded-xl p-6 border shadow-lg">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-2xl font-bold text-[#0f172a]">📄 Content Editor</h3>
+                <button 
+                  onClick={copyHTMLToClipboard}
+                  className="bg-purple-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-purple-700 text-sm font-semibold"
+                  title="Copy HTML for n8n workflow"
+                >
+                  <Copy className="w-4 h-4" />
+                  Copy HTML
+                </button>
+              </div>
+              <div className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <div className="px-4 py-2 bg-blue-50 border border-blue-200 rounded-lg flex-1 mr-3">
+                    <p className="text-blue-800 text-sm">✨ <span className="font-semibold">Edit directly!</span> {showHighlights && highlightedData?.changesCount > 0 && <span>• <span className="font-semibold">{highlightedData?.changesCount} real content {highlightedData?.changesCount === 1 ? 'change' : 'changes'}</span> highlighted</span>}</p>
+                  </div>
+                  <button onClick={() => setShowHighlights(!showHighlights)} className={`px-4 py-2 rounded-lg text-sm font-semibold whitespace-nowrap ${showHighlights ? 'bg-blue-500 text-white' : 'bg-white border'}`}>{showHighlights ? '✨ Hide' : '👁️ Show'}</button>
+                </div>
         
-        <div className="bg-white rounded-xl p-6 border-2 border-[#0ea5e9] shadow-lg">
-          <style>{`
-            .blog-content h1 {
-              font-size: 2.25rem !important;
-              line-height: 2.5rem !important;
-              font-weight: 700 !important;
-              margin: 2rem 0 1rem 0 !important;
-              color: #0f172a !important;
-            }
-            .blog-content h2 {
-              font-size: 1.875rem !important;
-              line-height: 2.25rem !important;
-              font-weight: 700 !important;
-              margin: 1.75rem 0 1rem 0 !important;
-              color: #0f172a !important;
-            }
-            .blog-content h3 {
-              font-size: 1.5rem !important;
-              line-height: 2rem !important;
-              font-weight: 600 !important;
-              margin: 1.5rem 0 0.75rem 0 !important;
-              color: #1e293b !important;
-            }
-            .blog-content h4 {
-              font-size: 1.25rem !important;
-              line-height: 1.75rem !important;
-              font-weight: 600 !important;
-              margin: 1.25rem 0 0.5rem 0 !important;
-              color: #1e293b !important;
-            }
-            .blog-content img {
-              max-width: 100%;
-              height: auto;
-              display: block;
-              margin: 1rem 0;
-              cursor: pointer;
-            }
-            .blog-content p {
-              margin: 0.75rem 0;
-              line-height: 1.7;
-            }
-            .blog-content ul, .blog-content ol {
-              margin: 1rem 0;
-              padding-left: 2rem;
-            }
-            .blog-content ul {
-              list-style-type: disc;
-            }
-            .blog-content ol {
-              list-style-type: decimal;
-            }
-            .blog-content li {
-              margin: 0.5rem 0;
-              line-height: 1.7;
-              display: list-item;
-            }
-            .blog-content a {
-              color: #0ea5e9;
-              text-decoration: underline;
-              cursor: pointer;
-              pointer-events: auto;
-            }
-            .blog-content a:hover {
-              color: #0284c7;
-              background-color: rgba(14, 165, 233, 0.1);
-            }
-          `}</style>
-          <div className="text-[#0ea5e9] text-sm font-bold mb-2">📝 EDITABLE CONTENT</div>
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2 p-3 bg-gray-50 border rounded-lg flex-wrap flex-1">
-              <button onClick={() => formatText('bold')} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 font-bold text-sm" title="Bold">B</button>
-              <button onClick={() => formatText('italic')} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 italic text-sm" title="Italic">I</button>
-              <div className="w-px h-6 bg-gray-300"></div>
-              <button onClick={() => formatHeading(1)} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm font-bold" title="Heading 1">H1</button>
-              <button onClick={() => formatHeading(2)} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm font-bold" title="Heading 2">H2</button>
-              <button onClick={() => formatHeading(3)} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Heading 3">H3</button>
-              <button onClick={() => formatHeading(4)} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Heading 4">H4</button>
-              <div className="w-px h-6 bg-gray-300"></div>
-              <button onClick={() => formatList('bullet')} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Bullet List">• List</button>
-              <button onClick={() => formatList('numbered')} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Numbered List">1. List</button>
-              <div className="w-px h-6 bg-gray-300"></div>
-              <button onClick={insertLink} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Add Link">🔗</button>
-              <button onClick={insertImage} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Add Image">🖼️</button>
+                <div className="bg-white rounded-xl p-6 border-2 border-[#0ea5e9] shadow-lg">
+                  <style>{`
+                    .blog-content h1 {
+                      font-size: 2.25rem !important;
+                      line-height: 2.5rem !important;
+                      font-weight: 700 !important;
+                      margin: 2rem 0 1rem 0 !important;
+                      color: #0f172a !important;
+                    }
+                    .blog-content h2 {
+                      font-size: 1.875rem !important;
+                      line-height: 2.25rem !important;
+                      font-weight: 700 !important;
+                      margin: 1.75rem 0 1rem 0 !important;
+                      color: #0f172a !important;
+                    }
+                    .blog-content h3 {
+                      font-size: 1.5rem !important;
+                      line-height: 2rem !important;
+                      font-weight: 600 !important;
+                      margin: 1.5rem 0 0.75rem 0 !important;
+                      color: #1e293b !important;
+                    }
+                    .blog-content h4 {
+                      font-size: 1.25rem !important;
+                      line-height: 1.75rem !important;
+                      font-weight: 600 !important;
+                      margin: 1.25rem 0 0.5rem 0 !important;
+                      color: #1e293b !important;
+                    }
+                    .blog-content img {
+                      max-width: 100%;
+                      height: auto;
+                      display: block;
+                      margin: 1rem 0;
+                      cursor: pointer;
+                    }
+                    .blog-content p {
+                      margin: 0.75rem 0;
+                      line-height: 1.7;
+                    }
+                    .blog-content ul, .blog-content ol {
+                      margin: 1rem 0;
+                      padding-left: 2rem;
+                    }
+                    .blog-content ul {
+                      list-style-type: disc;
+                    }
+                    .blog-content ol {
+                      list-style-type: decimal;
+                    }
+                    .blog-content li {
+                      margin: 0.5rem 0;
+                      line-height: 1.7;
+                      display: list-item;
+                    }
+                    .blog-content a {
+                      color: #0ea5e9;
+                      text-decoration: underline;
+                      cursor: pointer;
+                      pointer-events: auto;
+                    }
+                    .blog-content a:hover {
+                      color: #0284c7;
+                      background-color: rgba(14, 165, 233, 0.1);
+                    }
+                  `}</style>
+                  <div className="text-[#0ea5e9] text-sm font-bold mb-2">📝 EDITABLE CONTENT</div>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2 p-3 bg-gray-50 border rounded-lg flex-wrap flex-1">
+                      <button onClick={() => formatText('bold')} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 font-bold text-sm" title="Bold">B</button>
+                      <button onClick={() => formatText('italic')} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 italic text-sm" title="Italic">I</button>
+                      <div className="w-px h-6 bg-gray-300"></div>
+                      <button onClick={() => formatHeading(1)} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm font-bold" title="Heading 1">H1</button>
+                      <button onClick={() => formatHeading(2)} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm font-bold" title="Heading 2">H2</button>
+                      <button onClick={() => formatHeading(3)} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Heading 3">H3</button>
+                      <button onClick={() => formatHeading(4)} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Heading 4">H4</button>
+                      <div className="w-px h-6 bg-gray-300"></div>
+                      <button onClick={() => formatList('bullet')} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Bullet List">• List</button>
+                      <button onClick={() => formatList('numbered')} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Numbered List">1. List</button>
+                      <div className="w-px h-6 bg-gray-300"></div>
+                      <button onClick={insertLink} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Add Link">🔗</button>
+                      <button onClick={insertImage} className="px-3 py-1.5 bg-white border rounded hover:bg-gray-100 text-sm" title="Add Image">🖼️</button>
+                    </div>
+                    <div className="ml-3 px-3 py-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-700 whitespace-nowrap">
+                      💡 Click links to edit • Ctrl+Click to open
+                    </div>
+                  </div>
+                  <div ref={afterViewRef} className="blog-content text-gray-800 overflow-y-auto bg-white rounded-lg p-6 min-h-[600px]" contentEditable={true} suppressContentEditableWarning={true} onInput={handleAfterViewInput} onClick={handleContentClick} style={{ maxHeight: '800px', outline: 'none', cursor: 'text' }} />
+                </div>
+              </div>
             </div>
-            <div className="ml-3 px-3 py-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-700 whitespace-nowrap">
-              💡 Click links to edit • Ctrl+Click to open
-            </div>
-          </div>
-          <div ref={afterViewRef} className="blog-content text-gray-800 overflow-y-auto bg-white rounded-lg p-6 min-h-[600px]" contentEditable={true} suppressContentEditableWarning={true} onInput={handleAfterViewInput} onClick={handleContentClick} style={{ maxHeight: '800px', outline: 'none', cursor: 'text' }} />
-        </div>
-      </div>
-    </div>
         )}
 
 
