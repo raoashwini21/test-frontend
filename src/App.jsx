@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Zap, Settings, RefreshCw, CheckCircle, AlertCircle, Loader, TrendingUp, Search, Sparkles, Code, Eye, Copy } from 'lucide-react';
 
-const BACKEND_URL = 'https://contentops-backend-production.up.railway.app';
+const BACKEND_URL = 'https://test-backend-production-f29b.up.railway.app';
 
 // BOFU Research Prompt (Comparison, Reviews, Alternatives, Pricing)
 const BOFU_RESEARCH_PROMPT = `You are a professional fact-checker and researcher. Your job is to:
