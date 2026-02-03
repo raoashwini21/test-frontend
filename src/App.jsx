@@ -2144,7 +2144,7 @@ export default function ContentOps() {
       </div>
 
 
-          )
+
       {/* 🆕 GSC Upload Modal */}
       {showGscModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999]" onClick={() => setShowGscModal(false)}>
@@ -2254,51 +2254,6 @@ export default function ContentOps() {
                 className="flex-1 bg-purple-600 text-white py-3 rounded-lg font-semibold hover:bg-purple-700"
               >
                 Optimize with {matchedKeywords.length + (customKeywords.split('\n').filter(k => k.trim()).length)} Keywords
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showGscModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999]" onClick={() => setShowGscModal(false)}>
-          <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-xl font-bold mb-4">📊 Upload GSC Data</h3>
-            <p className="text-sm text-gray-600 mb-4">
-              Upload your XLSX file from Google Search Console (must include Queries and Pages sheets).
-            </p>
-            
-            {status.message && status.type !== 'success' && (
-              <div className={`p-3 rounded-lg mb-4 ${
-                status.type === 'error' ? 'bg-red-50 text-red-800' :
-                'bg-blue-50 text-blue-800'
-              }`}>
-                {status.message}
-              </div>
-            )}
-            
-            {gscData && (
-              <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded">
-                <p className="text-sm text-green-800 font-semibold">
-                  ✅ {gscData.blogsCount} blogs with keywords
-                </p>
-              </div>
-            )}
-            
-            <input 
-              type="file" 
-              accept=".xlsx,.xls"
-              onChange={handleGscUpload}
-              disabled={gscUploading}
-              className="w-full bg-gray-50 border rounded px-4 py-3 mb-4 text-sm"
-            />
-            
-            <div className="flex gap-3">
-              <button 
-                onClick={() => setShowGscModal(false)} 
-                className="flex-1 bg-gray-100 py-3 rounded font-semibold hover:bg-gray-200"
-              >
-                {gscData ? 'Done' : 'Cancel'}
               </button>
             </div>
           </div>
