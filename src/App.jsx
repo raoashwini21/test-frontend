@@ -2130,6 +2130,7 @@ export default function ContentOps() {
         </div>
       </div>
     </div>
+        )}
 
 
         {view === 'success' && (
