@@ -2144,6 +2144,13 @@ export default function ContentOps() {
 
       </div>
 
+      {/* Publish Button */}
+            <div className="flex gap-4">
+              <button onClick={() => { setView('dashboard'); setResult(null); setSelectedBlog(null); }} className="flex-1 bg-gray-100 text-gray-700 px-6 py-4 rounded-lg font-semibold hover:bg-gray-200">← Back</button>
+              <button onClick={publishToWebflow} disabled={loading} className="flex-1 bg-[#0ea5e9] text-white px-6 py-4 rounded-lg font-semibold hover:bg-[#0284c7] disabled:opacity-50">{loading ? 'Publishing...' : 'Publish to Webflow →'}</button>
+            </div>
+          </div>
+        )}
 
 
       {/* 🆕 GSC Upload Modal */}
