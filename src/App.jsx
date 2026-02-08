@@ -538,67 +538,100 @@ export default function ContentOps() {
   };
 
   // ── Smart Check (analyze) ─────────────────────
-  const analyzeBlog = async (blog) => {
-    setSelectedBlog(blog);
-    setLoading(true);
-    setHighlightedData(null);
-    setResult(null);
-
-    const title = blog.fieldData.name;
-    setBlogTitle(title);
-
-    // Detect meta field
-    for (const f of ['excerpt','post-summary','summary','meta-description','description','seo-description']) {
-      if (blog.fieldData[f]) { setMetaDescription(blog.fieldData[f]); setMetaFieldName(f); break; }
+const analyzeBlog = async (blog) => {
+  setSelectedBlog(blog);
+  setLoading(true);
+  setHighlightedData(null);
+  setResult(null);
+  
+  const title = blog.fieldData.name;
+  setBlogTitle(title);
+  
+  for (const f of ['excerpt','post-summary','summary','meta-description','description','seo-description']) {
+    if (blog.fieldData[f]) { 
+      setMetaDescription(blog.fieldData[f]); 
+      setMetaFieldName(f); 
+      break; 
     }
-
-    const gscInfo = getGscKeywordsForBlog(blog);
-    const hasGsc = gscInfo?.hasKeywords && gscInfo.keywords.length > 0;
-
-    setStatus({ type: 'info', message: hasGsc ? `Optimizing with ${gscInfo.keywords.length} GSC keywords + web search...` : 'Smart analysis in progress...' });
-
-    const original = blog.fieldData['post-body'] || '';
-
-    try {
-      const r = await fetch(`${BACKEND_URL}/api/analyze`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          blogContent: original,
-          title,
-          anthropicKey: config.anthropicKey,
-          braveKey: config.braveKey,
-          gscKeywords: hasGsc ? gscInfo.keywords.map(k => k.query) : null,
-          gscPosition: gscInfo?.position || null
-        })
-      });
-      if (!r.ok) { const e = await r.json(); throw new Error(e.error || 'Analysis failed'); }
-      const data = await r.json();
-
-      let updated = (data.content || original).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-      const highlighted = createHighlightedHTML(original, updated);
-      setHighlightedData(highlighted);
-
-      setResult({
-        searchesUsed: data.searchesUsed || 0,
-        claudeCalls: data.claudeCalls || 0,
-        sectionsUpdated: data.sectionsUpdated || 0,
-        content: updated,
-        originalContent: original,
-        duration: data.duration || 0,
-        blogType: detectBlogType(title),
-        gscOptimized: data.gscOptimized,
-        gscKeywordsUsed: hasGsc ? gscInfo.keywords : null
-      });
-
-      setEditedContent(updated);
-      setShowHighlights(true);
-      setEditMode('edit');
-      setStatus({ type: 'success', message: hasGsc ? `Optimized with ${gscInfo.keywords.length} keywords!` : 'Analysis complete!' });
-      setView('review');
-    } catch (e) { setStatus({ type: 'error', message: e.message }); }
-    finally { setLoading(false); }
-  };
+  }
+  
+  const gscInfo = getGscKeywordsForBlog(blog);
+  const hasGsc = gscInfo?.hasKeywords && gscInfo.keywords.length > 0;
+  
+  setStatus({ 
+    type: 'info', 
+    message: hasGsc 
+      ? `Optimizing with ${gscInfo.keywords.length} GSC keywords + web search...` 
+      : 'Smart analysis in progress...' 
+  });
+  
+  const original = blog.fieldData['post-body'] || '';
+  
+  try {
+    const r = await fetch(`${BACKEND_URL}/api/smartcheck`, {  // ✅ Fixed: added opening parenthesis
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        blogContent: original,
+        title,
+        slug: blog.fieldData.slug || blog.fieldData.name?.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+        anthropicKey: config.anthropicKey,
+        braveKey: config.braveKey,
+        gscKeywords: hasGsc ? gscInfo.keywords.map(k => ({
+          keyword: k.query,
+          position: k.position,
+          clicks: k.clicks
+        })) : null
+      })
+    });
+    
+    const contentType = r.headers.get('content-type');
+    if (!contentType || !contentType.includes('application/json')) {
+      const text = await r.text();
+      console.error('Server returned:', text);
+      throw new Error('Server error - check backend logs');
+    }
+    
+    if (!r.ok) { 
+      const e = await r.json(); 
+      throw new Error(e.error || 'Analysis failed'); 
+    }
+    
+    const data = await r.json();
+    
+    let updated = (data.updatedContent || original).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    const highlighted = createHighlightedHTML(original, updated);
+    setHighlightedData(highlighted);
+    
+    setResult({
+      searchesUsed: data.stats?.searches || 0,
+      claudeCalls: 2,
+      sectionsUpdated: 0,
+      content: updated,
+      originalContent: original,
+      duration: parseFloat(data.stats?.elapsed) || 0,
+      blogType: detectBlogType(title),
+      gscOptimized: hasGsc,
+      gscKeywordsUsed: hasGsc ? gscInfo.keywords : null
+    });
+    
+    setEditedContent(updated);
+    setShowHighlights(true);
+    setEditMode('edit');
+    setStatus({ 
+      type: 'success', 
+      message: hasGsc 
+        ? `Optimized with ${gscInfo.keywords.length} keywords!` 
+        : 'Analysis complete!' 
+    });
+    setView('review');
+  } catch (e) { 
+    console.error('Analysis error:', e);
+    setStatus({ type: 'error', message: e.message }); 
+  } finally { 
+    setLoading(false); 
+  }
+};
 
   // ── Publish ───────────────────────────────────
   const publishToWebflow = async () => {
