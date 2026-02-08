@@ -637,11 +637,20 @@ export default function ContentOps() {
     setStatus({ type: 'info', message: 'Loading all blogs...' });
     try {
       const ctrl = new AbortController();
-      setTimeout(() => ctrl.abort(), 180000);
+      const timeoutId = setTimeout(() => ctrl.abort(), 180000); // 3 min timeout
+      
       const r = await fetch(`${BACKEND_URL}/api/webflow?collectionId=${config.collectionId}`, {
-        headers: { 'Authorization': `Bearer ${config.webflowKey}` }, signal: ctrl.signal
+        headers: { 'Authorization': `Bearer ${config.webflowKey}` }, 
+        signal: ctrl.signal
       });
-      if (!r.ok) throw new Error(`Error ${r.status}`);
+      
+      clearTimeout(timeoutId);
+      
+      if (!r.ok) {
+        const error = await r.json();
+        throw new Error(error.error || `Error ${r.status}`);
+      }
+      
       const d = await r.json();
       
       // Extract site ID
@@ -650,12 +659,22 @@ export default function ContentOps() {
         console.log('Site ID:', d.items[0].siteId);
       }
       
-      const seen = new Set(); const unique = (d.items || []).filter(i => { if (seen.has(i.id)) return false; seen.add(i.id); return true; });
+      const seen = new Set(); 
+      const unique = (d.items || []).filter(i => { if (seen.has(i.id)) return false; seen.add(i.id); return true; });
       setBlogs(unique); setBlogCacheData(unique); setCacheTimestamp(Date.now());
-      setStatus({ type: 'success', message: `Loaded ${unique.length} blogs` });
+      setStatus({ type: 'success', message: `Loaded ${unique.length} blogs${d.cached ? ' (from server cache)' : ''}` });
       setView('dashboard');
-    } catch (e) { setStatus({ type: 'error', message: e.name === 'AbortError' ? 'Timed out' : e.message }); }
-    finally { setLoading(false); }
+    } catch (e) { 
+      if (e.name === 'AbortError') {
+        setStatus({ type: 'error', message: 'Request timed out. Try "Quick Load" instead.' });
+      } else if (e.message.includes('429')) {
+        setStatus({ type: 'error', message: 'Too many requests. Please wait a minute and try again.' });
+      } else {
+        setStatus({ type: 'error', message: e.message });
+      }
+    } finally { 
+      setLoading(false); 
+    }
   };
 
   // ── Smart Check (analyze) ─────────────────────
@@ -706,7 +725,13 @@ export default function ContentOps() {
       }
 
       if (!r.ok) { 
-        const e = await r.json(); 
+        const e = await r.json();
+        if (r.status === 429) {
+          throw new Error('Too many requests. Please wait a minute and try again.');
+        }
+        if (r.status === 408) {
+          throw new Error('Analysis timed out. Your blog post may be too long. Try a shorter post.');
+        }
         throw new Error(e.error || 'Analysis failed'); 
       }
       
@@ -725,13 +750,21 @@ export default function ContentOps() {
         duration: parseFloat(data.stats?.elapsed) || 0,
         blogType: detectBlogType(title),
         gscOptimized: hasGsc,
-        gscKeywordsUsed: hasGsc ? gscInfo.keywords : null
+        gscKeywordsUsed: hasGsc ? gscInfo.keywords : null,
+        fromCache: data.fromCache || false
       });
 
       setEditedContent(updated);
       setShowHighlights(true);
       setEditMode('edit');
-      setStatus({ type: 'success', message: hasGsc ? `Optimized with ${gscInfo.keywords.length} keywords!` : 'Analysis complete!' });
+      
+      const successMsg = data.fromCache 
+        ? 'Analysis complete (from cache)!' 
+        : hasGsc 
+          ? `Optimized with ${gscInfo.keywords.length} keywords!` 
+          : 'Analysis complete!';
+      
+      setStatus({ type: 'success', message: successMsg });
       setView('review');
     } catch (e) { 
       console.error('Analysis error:', e);
