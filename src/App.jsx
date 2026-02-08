@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Zap, Settings, RefreshCw, CheckCircle, AlertCircle, Loader, TrendingUp, Search, Sparkles, Code, Eye, Copy, Bold, Italic, List, ListOrdered, Link2, ImagePlus, Type, Undo2, ChevronDown } from 'lucide-react';
+import { Zap, Settings, RefreshCw, CheckCircle, AlertCircle, Loader, TrendingUp, Search, Sparkles, Code, Eye, Copy, Bold, Italic, List, ListOrdered, Link2, ImagePlus, Type, Undo2, ChevronDown, Upload } from 'lucide-react';
 
 const BACKEND_URL = 'https://test-backend-production-f29b.up.railway.app';
 
@@ -14,7 +14,7 @@ const detectBlogType = (title) => {
 // ── Change highlighting ─────────────────────────
 const createHighlightedHTML = (original, updated) => {
   const norm = (html) => html.replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/gi, ' ').replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
-  
+
   const toBlocks = (html) => {
     const parser = new DOMParser();
     const doc = parser.parseFromString(`<div>${html}</div>`, 'text/html');
@@ -34,7 +34,7 @@ const createHighlightedHTML = (original, updated) => {
     Array.from(doc.body.firstChild.childNodes).forEach(walk);
     return blocks;
   };
-  
+
   const origBlocks = toBlocks(original);
   const updBlocks = toBlocks(updated);
   const origMap = new Map();
@@ -42,16 +42,16 @@ const createHighlightedHTML = (original, updated) => {
     const n = norm(b);
     if (n.length > 10) { if (!origMap.has(n)) origMap.set(n, []); origMap.get(n).push({ html: b, used: false }); }
   });
-  
+
   let html = '', changes = 0;
   for (const block of updBlocks) {
     const n = norm(block);
     const isSpecial = /<(table|iframe|embed|script|img|figure|video|audio|canvas|object|svg|form)/i.test(block) || /class="[^"]*w(idget|-embed|-widget)[^"]*"/i.test(block);
     if (isSpecial) { html += block; continue; }
-    
+
     const match = origMap.get(n);
     if (match) { const m = match.find(x => !x.used); if (m) { m.used = true; html += block; continue; } }
-    
+
     if (n.length > 20) {
       const words = new Set(n.split(/\s+/).filter(w => w.length > 3));
       let found = false;
@@ -75,13 +75,13 @@ const createHighlightedHTML = (original, updated) => {
   return { html, changesCount: changes };
 };
 
-// ── List sanitizer ──────────────────────────────
+// ── List sanitizer (runs before every publish AND copy) ──
 const sanitizeListHTML = (html) => {
   const parser = new DOMParser();
   const doc = parser.parseFromString(`<div>${html}</div>`, 'text/html');
   const root = doc.body.firstChild;
 
-  // Fix orphaned <li> (not inside ul/ol)
+  // 1. Fix orphaned <li> not inside ul/ol
   const orphans = Array.from(root.querySelectorAll('li')).filter(li => {
     const p = li.parentElement;
     return p && p.tagName !== 'UL' && p.tagName !== 'OL';
@@ -94,7 +94,7 @@ const sanitizeListHTML = (html) => {
       const group = [li]; done.add(li);
       let next = li.nextElementSibling;
       while (next && next.tagName === 'LI' && orphans.includes(next)) { group.push(next); done.add(next); next = next.nextElementSibling; }
-      
+
       const ul = doc.createElement('ul');
       ul.setAttribute('role', 'list');
       const parent = li.parentElement;
@@ -108,7 +108,7 @@ const sanitizeListHTML = (html) => {
     });
   }
 
-  // Fix <p> containing only <li>
+  // 2. Fix <p> containing only <li>
   root.querySelectorAll('p').forEach(p => {
     const kids = Array.from(p.children);
     if (kids.length && kids.every(c => c.tagName === 'LI')) {
@@ -119,14 +119,14 @@ const sanitizeListHTML = (html) => {
     }
   });
 
-  // Ensure all ul/ol have role="list" and li have role="listitem"
-  root.querySelectorAll('ul, ol').forEach(list => { if (!list.getAttribute('role')) list.setAttribute('role', 'list'); });
-  root.querySelectorAll('li').forEach(li => { if (!li.getAttribute('role')) li.setAttribute('role', 'listitem'); });
+  // 3. Ensure roles on all lists
+  root.querySelectorAll('ul, ol').forEach(el => { if (!el.getAttribute('role')) el.setAttribute('role', 'list'); });
+  root.querySelectorAll('li').forEach(el => { if (!el.getAttribute('role')) el.setAttribute('role', 'listitem'); });
 
   return root.innerHTML;
 };
 
-// ── Editor CSS (injected into contentEditable) ──
+// ── Editor CSS ──────────────────────────────────
 const EDITOR_STYLES = `
   .co-editor { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 16px; line-height: 1.7; color: #1a1a1a; padding: 32px; min-height: 600px; outline: none; }
   .co-editor h1 { font-size: 2rem; font-weight: 800; margin: 2rem 0 1rem; line-height: 1.25; }
@@ -140,7 +140,7 @@ const EDITOR_STYLES = `
   .co-editor li { margin: 0.35rem 0; display: list-item !important; }
   .co-editor a { color: #0ea5e9; text-decoration: underline; }
   .co-editor img { max-width: 100%; height: auto; display: block; margin: 1rem 0; border-radius: 6px; clear: both; position: relative; z-index: 1; }
-  .co-editor iframe { max-width: 100%; display: block; margin: 1rem 0; clear: both; position: relative; z-index: 1; }
+  .co-editor iframe { max-width: 100%; display: block; margin: 1rem 0; clear: both; position: relative; z-index: 1; min-height: 60px; border: 1px dashed #cbd5e1; }
   .co-editor video { max-width: 100%; display: block; margin: 1rem 0; clear: both; }
   .co-editor figure { max-width: 100%; margin: 1rem 0; clear: both; display: block; overflow: visible; }
   .co-editor table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
@@ -149,7 +149,7 @@ const EDITOR_STYLES = `
   .co-editor strong, .co-editor b { font-weight: 700; }
   .co-editor em, .co-editor i { font-style: italic; }
   .co-editor blockquote { border-left: 3px solid #0ea5e9; margin: 1rem 0; padding: 0.75rem 1rem; background: #f8fafc; }
-  .co-editor [class*="widget"], .co-editor [class*="w-embed"], .co-editor [class*="w-widget"] { display: block; margin: 1rem 0; clear: both; }
+  .co-editor [class*="widget"], .co-editor [class*="w-embed"], .co-editor [class*="w-widget"] { display: block; margin: 1rem 0; clear: both; padding: 12px; border: 1px dashed #94a3b8; background: #f8fafc; border-radius: 6px; }
   .co-editor * { max-width: 100%; box-sizing: border-box; }
 `;
 
@@ -158,7 +158,7 @@ const EDITOR_STYLES = `
 // ════════════════════════════════════════════════
 export default function ContentOps() {
   const [view, setView] = useState('home');
-  const [config, setConfig] = useState({ anthropicKey: '', braveKey: '', webflowKey: '', collectionId: '' });
+  const [config, setConfig] = useState({ anthropicKey: '', braveKey: '', webflowKey: '', collectionId: '', siteId: '' });
   const [savedConfig, setSavedConfig] = useState(null);
   const [blogs, setBlogs] = useState([]);
   const [selectedBlog, setSelectedBlog] = useState(null);
@@ -179,16 +179,17 @@ export default function ContentOps() {
   const [linkUrl, setLinkUrl] = useState('');
   const [linkText, setLinkText] = useState('');
   const [editingLink, setEditingLink] = useState(null);
-  const [imageAltModal, setImageAltModal] = useState({ show: false, src: '', currentAlt: '', index: -1, isNewUpload: false, file: null });
-  const [editMode, setEditMode] = useState('edit'); // 'edit' | 'preview' | 'html'
+  const [imageAltModal, setImageAltModal] = useState({ show: false, src: '', currentAlt: '', index: -1, isUpload: false, file: null });
+  const [editMode, setEditMode] = useState('edit');
   const [showHighlights, setShowHighlights] = useState(true);
   const [showHeadingMenu, setShowHeadingMenu] = useState(false);
   const [htmlSource, setHtmlSource] = useState('');
   const [copied, setCopied] = useState(false);
-  const [siteId, setSiteId] = useState(null);
 
   const editorRef = useRef(null);
-  const savedRange = useRef(null);
+  const savedRangeRef = useRef(null);
+  // Track whether we need to reload editor content (only on mode switch, not every edit)
+  const editorNeedsReload = useRef(false);
 
   // ── Init ──────────────────────────────────────
   useEffect(() => {
@@ -198,32 +199,48 @@ export default function ContentOps() {
     if (g) { try { setGscData(JSON.parse(g)); } catch {} }
   }, []);
 
+  // ══════════════════════════════════════════════
+  // CRITICAL FIX: Editor ↔ State sync
+  //
+  // OLD BUG: useEffect watched [editMode, editedContent]
+  //   → Every keystroke: syncFromEditor sets editedContent
+  //   → useEffect fires, compares innerHTML !== editedContent (always true due to browser normalization)
+  //   → Sets innerHTML again → cursor jumps to start → content corrupts
+  //
+  // FIX: Only reload editor HTML when SWITCHING modes (not on every edit)
+  // ══════════════════════════════════════════════
+  useEffect(() => {
+    if (editMode === 'edit' && editorRef.current) {
+      // Only set innerHTML when entering edit mode (from preview/html)
+      // or when analysis first loads content
+      editorRef.current.innerHTML = editedContent;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editMode]); // ← ONLY editMode, NOT editedContent
+
   // ── Editor helpers ────────────────────────────
   const saveRange = () => {
     const sel = window.getSelection();
-    if (sel.rangeCount > 0) savedRange.current = sel.getRangeAt(0).cloneRange();
+    if (sel.rangeCount > 0) savedRangeRef.current = sel.getRangeAt(0).cloneRange();
   };
 
   const restoreRange = () => {
-    if (savedRange.current) {
+    if (savedRangeRef.current) {
       const sel = window.getSelection();
       sel.removeAllRanges();
-      sel.addRange(savedRange.current);
+      try { sel.addRange(savedRangeRef.current); } catch {}
     }
   };
 
+  // This is the ONLY function that reads from editor → state
+  // It runs on every keystroke via onInput
   const syncFromEditor = useCallback(() => {
-    if (editorRef.current) setEditedContent(editorRef.current.innerHTML);
-  }, []);
-
-  const loadIntoEditor = useCallback((html) => {
     if (editorRef.current) {
-      editorRef.current.innerHTML = html;
-      setEditedContent(html);
+      setEditedContent(editorRef.current.innerHTML);
     }
   }, []);
 
-  // ── Formatting commands ───────────────────────
+  // ── Formatting ────────────────────────────────
   const execCmd = (cmd, val) => {
     editorRef.current?.focus();
     document.execCommand(cmd, false, val || null);
@@ -234,25 +251,20 @@ export default function ContentOps() {
     if (!editorRef.current) return;
     const sel = window.getSelection();
     if (!sel.rangeCount) return;
-    const range = sel.getRangeAt(0);
-    let block = range.startContainer;
+    let block = sel.getRangeAt(0).startContainer;
     while (block && block !== editorRef.current) {
       if (block.nodeType === 1 && /^(P|DIV|H[1-6]|LI)$/.test(block.tagName)) break;
       block = block.parentNode;
     }
     if (!block || block === editorRef.current) return;
 
-    // If already this heading level, convert back to P
     if (block.tagName === `H${level}`) {
       const p = document.createElement('p');
       p.innerHTML = block.innerHTML;
-      // Copy any classes/ids
-      Array.from(block.attributes).forEach(a => { if (a.name !== 'id') p.setAttribute(a.name, a.value); });
       block.parentNode.replaceChild(p, block);
     } else {
       const h = document.createElement(`h${level}`);
       h.innerHTML = block.innerHTML;
-      // Preserve existing id and class from original heading
       if (block.id) h.id = block.id;
       if (block.className) h.className = block.className;
       block.parentNode.replaceChild(h, block);
@@ -265,14 +277,13 @@ export default function ContentOps() {
     execCmd(type === 'bullet' ? 'insertUnorderedList' : 'insertOrderedList');
   };
 
+  // ── Editor click handlers ─────────────────────
   const handleEditorClick = (e) => {
-    // Click on image
     if (e.target.tagName === 'IMG') {
       const imgs = Array.from(editorRef.current.querySelectorAll('img'));
-      setImageAltModal({ show: true, src: e.target.src, currentAlt: e.target.alt || '', index: imgs.indexOf(e.target), isNewUpload: false, file: null });
+      setImageAltModal({ show: true, src: e.target.src, currentAlt: e.target.alt || '', index: imgs.indexOf(e.target), isUpload: false, file: null });
       return;
     }
-    // Click on link
     let el = e.target;
     while (el && el !== editorRef.current) {
       if (el.tagName === 'A') {
@@ -288,6 +299,7 @@ export default function ContentOps() {
     }
   };
 
+  // ── Link modal ────────────────────────────────
   const openLinkModal = () => {
     saveRange();
     const sel = window.getSelection();
@@ -316,166 +328,108 @@ export default function ContentOps() {
       a.href = linkUrl; a.target = '_blank'; a.rel = 'noopener noreferrer';
       a.style.color = '#0ea5e9'; a.style.textDecoration = 'underline';
       a.textContent = linkText?.trim() || selectedText || linkUrl;
-      if (savedRange.current) {
-        if (selectedText) savedRange.current.deleteContents();
-        savedRange.current.insertNode(a);
+      if (savedRangeRef.current) {
+        if (selectedText) savedRangeRef.current.deleteContents();
+        savedRangeRef.current.insertNode(a);
       }
     }
     syncFromEditor();
     setShowLinkModal(false); setLinkUrl(''); setLinkText(''); setEditingLink(null);
   };
 
-  // ── Image upload handler ──────────────────────
+  // ── Image upload via device ───────────────────
   const handleImageUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    
-    // Validate file type
-    if (!file.type.startsWith('image/')) {
-      setStatus({ type: 'error', message: 'Please select an image file' });
-      return;
-    }
-    
-    // Validate file size (5MB limit)
-    if (file.size > 5 * 1024 * 1024) {
-      setStatus({ type: 'error', message: 'Image too large (max 5MB)' });
-      return;
-    }
-    
-    saveRange(); // Save cursor position
-    
-    // Create preview URL
-    const previewUrl = URL.createObjectURL(file);
-    
-    // Show alt text modal immediately
-    setImageAltModal({ 
-      show: true, 
-      src: previewUrl, 
-      currentAlt: '', 
-      index: -1,
-      isNewUpload: true,
-      file: file
-    });
-    
-    // Reset input
+    if (!file.type.startsWith('image/')) { setStatus({ type: 'error', message: 'Select an image file' }); return; }
+    if (file.size > 5 * 1024 * 1024) { setStatus({ type: 'error', message: 'Max 5MB' }); return; }
+
+    saveRange();
+    const preview = URL.createObjectURL(file);
+    setImageAltModal({ show: true, src: preview, currentAlt: '', index: -1, isUpload: true, file });
     e.target.value = '';
   };
 
   const insertUploadedImage = async () => {
     if (!imageAltModal.file || !imageAltModal.currentAlt.trim()) {
-      setStatus({ type: 'error', message: 'Please add alt text for accessibility' });
-      return;
+      setStatus({ type: 'error', message: 'Alt text required for SEO' }); return;
     }
-    
-    if (!siteId) {
-      setStatus({ type: 'error', message: 'Site ID not available. Please reload blogs first.' });
-      return;
+    if (!config.siteId) {
+      setStatus({ type: 'error', message: 'Site ID missing. Add it in Settings.' }); return;
     }
-    
-    setStatus({ type: 'info', message: 'Uploading image to Webflow...' });
-    
+
+    setStatus({ type: 'info', message: 'Uploading to Webflow...' });
     try {
-      // Convert to base64
-      const base64 = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = reject;
-        reader.readAsDataURL(imageAltModal.file);
+      const b64 = await new Promise((res, rej) => {
+        const r = new FileReader();
+        r.onload = () => res(r.result);
+        r.onerror = rej;
+        r.readAsDataURL(imageAltModal.file);
       });
-      
-      // Upload to backend
-      const response = await fetch(`${BACKEND_URL}/api/upload-image`, {
+
+      const resp = await fetch(`${BACKEND_URL}/api/upload-image`, {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${config.webflowKey}`
-        },
-        body: JSON.stringify({ 
-          image: base64,
-          filename: imageAltModal.file.name,
-          siteId: siteId
-        })
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.webflowKey}` },
+        body: JSON.stringify({ image: b64, filename: imageAltModal.file.name, siteId: config.siteId })
       });
-      
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Upload failed');
-      }
-      
-      const data = await response.json();
-      
-      // Insert image into editor
+
+      if (!resp.ok) { const e = await resp.json(); throw new Error(e.error || 'Upload failed'); }
+      const data = await resp.json();
+
+      // Insert into editor at cursor
       restoreRange();
       const img = document.createElement('img');
       img.src = data.url;
       img.alt = imageAltModal.currentAlt.trim();
       img.loading = 'lazy';
-      img.style.maxWidth = '100%';
-      img.style.height = 'auto';
-      img.style.display = 'block';
-      img.style.margin = '1rem 0';
-      img.style.borderRadius = '6px';
-      
-      if (savedRange.current) {
-        savedRange.current.insertNode(img);
-        savedRange.current.setStartAfter(img);
+      img.style.cssText = 'max-width:100%;height:auto;display:block;margin:1rem 0;border-radius:6px';
+
+      if (savedRangeRef.current) {
+        savedRangeRef.current.insertNode(img);
+        savedRangeRef.current.setStartAfter(img);
       } else if (editorRef.current) {
         editorRef.current.appendChild(img);
       }
-      
       syncFromEditor();
-      
-      // Clean up
+
       URL.revokeObjectURL(imageAltModal.src);
-      setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isNewUpload: false, file: null });
-      setStatus({ type: 'success', message: 'Image uploaded to Webflow!' });
+      setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isUpload: false, file: null });
+      setStatus({ type: 'success', message: 'Image uploaded!' });
       setTimeout(() => setStatus({ type: '', message: '' }), 2000);
-      
-    } catch (error) {
-      console.error('Upload error:', error);
-      setStatus({ type: 'error', message: error.message });
-      setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isNewUpload: false, file: null });
+    } catch (err) {
+      setStatus({ type: 'error', message: err.message });
+      setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isUpload: false, file: null });
     }
   };
 
   const updateImageAlt = () => {
-    // For new uploads
-    if (imageAltModal.isNewUpload) {
-      insertUploadedImage();
-      return;
-    }
-    
-    // For existing images
+    if (imageAltModal.isUpload) { insertUploadedImage(); return; }
     const imgs = editorRef.current?.querySelectorAll('img');
-    if (imgs && imgs[imageAltModal.index]) {
+    if (imgs?.[imageAltModal.index]) {
       imgs[imageAltModal.index].alt = imageAltModal.currentAlt;
       syncFromEditor();
     }
-    
-    setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isNewUpload: false, file: null });
+    setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isUpload: false, file: null });
   };
 
   const deleteImage = () => {
     if (!confirm('Delete this image?')) return;
     const imgs = editorRef.current?.querySelectorAll('img');
-    if (imgs && imgs[imageAltModal.index]) {
+    if (imgs?.[imageAltModal.index]) {
       const img = imgs[imageAltModal.index];
-      const fig = img.closest('figure');
-      (fig || img).remove();
+      (img.closest('figure') || img).remove();
       syncFromEditor();
     }
-    setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isNewUpload: false, file: null });
+    setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isUpload: false, file: null });
   };
 
-  // ── HTML Source editing ───────────────────────
-  const switchToHtmlMode = () => {
-    setHtmlSource(editedContent);
-    setEditMode('html');
-  };
+  // ── HTML source mode ──────────────────────────
+  const switchToHtmlMode = () => { setHtmlSource(editedContent); setEditMode('html'); };
 
   const applyHtmlSource = () => {
     setEditedContent(htmlSource);
-    if (editorRef.current) editorRef.current.innerHTML = htmlSource;
+    // Mark that editor needs reload when switching back
+    editorNeedsReload.current = true;
     setEditMode('edit');
   };
 
@@ -484,7 +438,7 @@ export default function ContentOps() {
     const cleaned = sanitizeListHTML(editedContent);
     navigator.clipboard.writeText(cleaned).then(() => {
       setCopied(true);
-      setStatus({ type: 'success', message: 'HTML copied to clipboard!' });
+      setStatus({ type: 'success', message: 'HTML copied!' });
       setTimeout(() => { setCopied(false); setStatus({ type: '', message: '' }); }, 3000);
     });
   };
@@ -506,10 +460,10 @@ export default function ContentOps() {
     reader.onload = async (e) => {
       try {
         if (typeof XLSX === 'undefined') {
-          await new Promise((resolve, reject) => {
+          await new Promise((res, rej) => {
             const s = document.createElement('script');
             s.src = 'https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js';
-            s.onload = resolve; s.onerror = reject;
+            s.onload = res; s.onerror = rej;
             document.head.appendChild(s);
           });
         }
@@ -531,7 +485,6 @@ export default function ContentOps() {
 
         const gscByUrl = {};
         let total = 0;
-
         for (const row of pages) {
           const url = row['Top pages'] || row['Page'] || '';
           if (!url.includes('/blogs/')) continue;
@@ -560,7 +513,7 @@ export default function ContentOps() {
         }
 
         if (!total) throw new Error('No keyword matches found');
-        const obj = { data: gscByUrl, uploadedAt: new Date().toISOString(), totalMatches: total, blogsCount: Object.keys(gscByUrl).length, type: 'xlsx-matched' };
+        const obj = { data: gscByUrl, uploadedAt: new Date().toISOString(), totalMatches: total, blogsCount: Object.keys(gscByUrl).length };
         localStorage.setItem('contentops_gsc_data', JSON.stringify(obj));
         setGscData(obj);
         setStatus({ type: 'success', message: `Matched keywords to ${total} blogs!` });
@@ -573,20 +526,30 @@ export default function ContentOps() {
   };
 
   // ── API calls ─────────────────────────────────
-  const testWebflowConnection = async () => {
+  const saveConfig = () => {
+    if (!config.anthropicKey || !config.braveKey || !config.webflowKey || !config.collectionId) {
+      setStatus({ type: 'error', message: 'Fill all required fields' }); return;
+    }
+    localStorage.setItem('contentops_config', JSON.stringify(config));
+    setSavedConfig(config);
+    setStatus({ type: 'success', message: 'Saved!' });
+    testConnection();
+  };
+
+  const testConnection = async () => {
     setLoading(true);
     setStatus({ type: 'info', message: 'Testing connection...' });
     try {
       const ctrl = new AbortController();
       setTimeout(() => ctrl.abort(), 15000);
-      const r = await fetch(`${BACKEND_URL}/api/webflow?collectionId=${config.collectionId}&limit=1&offset=0`, {
+      const r = await fetch(`${BACKEND_URL}/api/webflow?collectionId=${config.collectionId}`, {
         headers: { 'Authorization': `Bearer ${config.webflowKey}` }, signal: ctrl.signal
       });
       if (!r.ok) throw new Error(`Error ${r.status}`);
-      setStatus({ type: 'success', message: 'Connection OK!' });
-      setTimeout(() => fetchBlogs(), 1000);
+      setStatus({ type: 'success', message: 'Connected!' });
+      setTimeout(() => fetchBlogs(), 500);
     } catch (e) {
-      setStatus({ type: 'error', message: e.name === 'AbortError' ? 'Timed out (15s)' : e.message });
+      setStatus({ type: 'error', message: e.name === 'AbortError' ? 'Timed out' : e.message });
     } finally { setLoading(false); }
   };
 
@@ -596,34 +559,18 @@ export default function ContentOps() {
     try {
       const ctrl = new AbortController();
       setTimeout(() => ctrl.abort(), 30000);
-      const r = await fetch(`${BACKEND_URL}/api/webflow?collectionId=${config.collectionId}&limit=10&offset=0`, {
+      const r = await fetch(`${BACKEND_URL}/api/webflow?collectionId=${config.collectionId}`, {
         headers: { 'Authorization': `Bearer ${config.webflowKey}` }, signal: ctrl.signal
       });
       if (!r.ok) throw new Error(`Error ${r.status}`);
       const d = await r.json();
-      
-      // Extract site ID
-      if (d.items?.[0]?.siteId) {
-        setSiteId(d.items[0].siteId);
-        console.log('Site ID:', d.items[0].siteId);
-      }
-      
-      const seen = new Set(); const unique = (d.items || []).filter(i => { if (seen.has(i.id)) return false; seen.add(i.id); return true; });
+      const seen = new Set();
+      const unique = (d.items || []).filter(i => { if (seen.has(i.id)) return false; seen.add(i.id); return true; });
       setBlogs(unique); setBlogCacheData(unique); setCacheTimestamp(Date.now());
-      setStatus({ type: 'success', message: `Loaded ${unique.length} blogs` });
+      setStatus({ type: 'success', message: `Loaded ${unique.length} blogs${d.cached ? ' (cached)' : ''}` });
       setView('dashboard');
     } catch (e) { setStatus({ type: 'error', message: e.message }); }
     finally { setLoading(false); }
-  };
-
-  const saveConfig = () => {
-    if (!config.anthropicKey || !config.braveKey || !config.webflowKey || !config.collectionId) {
-      setStatus({ type: 'error', message: 'Fill all fields' }); return;
-    }
-    localStorage.setItem('contentops_config', JSON.stringify(config));
-    setSavedConfig(config);
-    setStatus({ type: 'success', message: 'Saved!' });
-    testWebflowConnection();
   };
 
   const fetchBlogs = async (force = false) => {
@@ -634,50 +581,26 @@ export default function ContentOps() {
       return;
     }
     setLoading(true);
-    setStatus({ type: 'info', message: 'Loading all blogs...' });
+    setStatus({ type: 'info', message: 'Loading blogs...' });
     try {
       const ctrl = new AbortController();
-      const timeoutId = setTimeout(() => ctrl.abort(), 180000); // 3 min timeout
-      
+      setTimeout(() => ctrl.abort(), 180000);
       const r = await fetch(`${BACKEND_URL}/api/webflow?collectionId=${config.collectionId}`, {
-        headers: { 'Authorization': `Bearer ${config.webflowKey}` }, 
-        signal: ctrl.signal
+        headers: { 'Authorization': `Bearer ${config.webflowKey}` }, signal: ctrl.signal
       });
-      
-      clearTimeout(timeoutId);
-      
-      if (!r.ok) {
-        const error = await r.json();
-        throw new Error(error.error || `Error ${r.status}`);
-      }
-      
+      if (!r.ok) { const e = await r.json(); throw new Error(e.error || `Error ${r.status}`); }
       const d = await r.json();
-      
-      // Extract site ID
-      if (d.items?.[0]?.siteId) {
-        setSiteId(d.items[0].siteId);
-        console.log('Site ID:', d.items[0].siteId);
-      }
-      
-      const seen = new Set(); 
+      const seen = new Set();
       const unique = (d.items || []).filter(i => { if (seen.has(i.id)) return false; seen.add(i.id); return true; });
       setBlogs(unique); setBlogCacheData(unique); setCacheTimestamp(Date.now());
-      setStatus({ type: 'success', message: `Loaded ${unique.length} blogs${d.cached ? ' (from server cache)' : ''}` });
+      setStatus({ type: 'success', message: `${unique.length} blogs loaded` });
       setView('dashboard');
-    } catch (e) { 
-      if (e.name === 'AbortError') {
-        setStatus({ type: 'error', message: 'Request timed out. Try "Quick Load" instead.' });
-      } else if (e.message.includes('429')) {
-        setStatus({ type: 'error', message: 'Too many requests. Please wait a minute and try again.' });
-      } else {
-        setStatus({ type: 'error', message: e.message });
-      }
-    } finally { 
-      setLoading(false); 
-    }
+    } catch (e) {
+      setStatus({ type: 'error', message: e.name === 'AbortError' ? 'Timed out. Try Quick Load.' : e.message });
+    } finally { setLoading(false); }
   };
 
-  // ── Smart Check (analyze) ─────────────────────
+  // ── Smart Check ───────────────────────────────
   const analyzeBlog = async (blog) => {
     setSelectedBlog(blog);
     setLoading(true);
@@ -687,7 +610,6 @@ export default function ContentOps() {
     const title = blog.fieldData.name;
     setBlogTitle(title);
 
-    // Detect meta field
     for (const f of ['excerpt','post-summary','summary','meta-description','description','seo-description']) {
       if (blog.fieldData[f]) { setMetaDescription(blog.fieldData[f]); setMetaFieldName(f); break; }
     }
@@ -695,7 +617,7 @@ export default function ContentOps() {
     const gscInfo = getGscKeywordsForBlog(blog);
     const hasGsc = gscInfo?.hasKeywords && gscInfo.keywords.length > 0;
 
-    setStatus({ type: 'info', message: hasGsc ? `Optimizing with ${gscInfo.keywords.length} GSC keywords + web search...` : 'Smart analysis in progress...' });
+    setStatus({ type: 'info', message: hasGsc ? `Optimizing with ${gscInfo.keywords.length} GSC keywords...` : 'Smart analysis in progress...' });
 
     const original = blog.fieldData['post-body'] || '';
 
@@ -706,37 +628,17 @@ export default function ContentOps() {
         body: JSON.stringify({
           blogContent: original,
           title,
-          slug: blog.fieldData.slug || blog.fieldData.name?.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
           anthropicKey: config.anthropicKey,
           braveKey: config.braveKey,
-          gscKeywords: hasGsc ? gscInfo.keywords.map(k => ({
-            keyword: k.query,
-            position: k.position,
-            clicks: k.clicks
-          })) : null
+          gscKeywords: hasGsc ? gscInfo.keywords.map(k => ({ keyword: k.query, position: k.position, clicks: k.clicks })) : null
         })
       });
 
-      const contentType = r.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        const text = await r.text();
-        console.error('Server returned:', text);
-        throw new Error('Server error - check backend logs');
-      }
+      const ct = r.headers.get('content-type');
+      if (!ct?.includes('application/json')) { const t = await r.text(); console.error('Bad response:', t); throw new Error('Server error'); }
+      if (!r.ok) { const e = await r.json(); throw new Error(e.error || 'Analysis failed'); }
 
-      if (!r.ok) { 
-        const e = await r.json();
-        if (r.status === 429) {
-          throw new Error('Too many requests. Please wait a minute and try again.');
-        }
-        if (r.status === 408) {
-          throw new Error('Analysis timed out. Your blog post may be too long. Try a shorter post.');
-        }
-        throw new Error(e.error || 'Analysis failed'); 
-      }
-      
       const data = await r.json();
-
       let updated = (data.updatedContent || original).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
       const highlighted = createHighlightedHTML(original, updated);
       setHighlightedData(highlighted);
@@ -744,34 +646,26 @@ export default function ContentOps() {
       setResult({
         searchesUsed: data.stats?.searches || 0,
         claudeCalls: 2,
-        sectionsUpdated: 0,
         content: updated,
         originalContent: original,
         duration: parseFloat(data.stats?.elapsed) || 0,
         blogType: detectBlogType(title),
         gscOptimized: hasGsc,
         gscKeywordsUsed: hasGsc ? gscInfo.keywords : null,
-        fromCache: data.fromCache || false
+        fromCache: data.fromCache || false,
+        widgetsProtected: data.stats?.widgetsProtected || 0
       });
 
       setEditedContent(updated);
       setShowHighlights(true);
       setEditMode('edit');
-      
-      const successMsg = data.fromCache 
-        ? 'Analysis complete (from cache)!' 
-        : hasGsc 
-          ? `Optimized with ${gscInfo.keywords.length} keywords!` 
-          : 'Analysis complete!';
-      
-      setStatus({ type: 'success', message: successMsg });
+      // Force editor reload with new content
+      editorNeedsReload.current = true;
+
+      setStatus({ type: 'success', message: data.fromCache ? 'From cache!' : hasGsc ? `Optimized with ${gscInfo.keywords.length} keywords!` : 'Analysis complete!' });
       setView('review');
-    } catch (e) { 
-      console.error('Analysis error:', e);
-      setStatus({ type: 'error', message: e.message }); 
-    } finally { 
-      setLoading(false); 
-    }
+    } catch (e) { setStatus({ type: 'error', message: e.message }); }
+    finally { setLoading(false); }
   };
 
   // ── Publish ───────────────────────────────────
@@ -783,6 +677,8 @@ export default function ContentOps() {
     setLoading(true);
     setStatus({ type: 'info', message: 'Publishing...' });
 
+    // sanitizeListHTML is the ONLY transformation we apply before publish
+    // It only fixes list structure - never touches other HTML
     const sanitized = sanitizeListHTML(editedContent);
     const fieldData = { name: blogTitle.trim(), 'post-body': sanitized };
     if (metaDescription.trim()) fieldData[metaFieldName] = metaDescription.trim();
@@ -809,15 +705,6 @@ export default function ContentOps() {
       }
     }
   };
-
-  // ── Load content into editor when switching modes
-  useEffect(() => {
-    if (editMode === 'edit' && editorRef.current && editedContent) {
-      if (editorRef.current.innerHTML !== editedContent) {
-        editorRef.current.innerHTML = editedContent;
-      }
-    }
-  }, [editMode, editedContent]);
 
   // ════════════════════════════════════════════════
   // RENDER
@@ -848,14 +735,14 @@ export default function ContentOps() {
         {/* Status bar */}
         {status.message && (
           <div className={`mb-6 p-4 rounded-lg flex items-start gap-3 ${status.type === 'error' ? 'bg-red-50 border border-red-200' : status.type === 'success' ? 'bg-green-50 border border-green-200' : 'bg-blue-50 border border-blue-200'}`}>
-            {status.type === 'error' ? <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" /> :
-             status.type === 'success' ? <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" /> :
-             <Loader className="w-5 h-5 text-blue-500 animate-spin flex-shrink-0 mt-0.5" />}
+            {status.type === 'error' ? <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" /> :
+             status.type === 'success' ? <CheckCircle className="w-5 h-5 text-green-500 shrink-0 mt-0.5" /> :
+             <Loader className="w-5 h-5 text-blue-500 animate-spin shrink-0 mt-0.5" />}
             <p className={`text-sm ${status.type === 'error' ? 'text-red-800' : status.type === 'success' ? 'text-green-800' : 'text-blue-800'}`}>{status.message}</p>
           </div>
         )}
 
-        {/* ── HOME ── */}
+        {/* HOME */}
         {view === 'home' && (
           <div className="text-center max-w-4xl mx-auto pt-12">
             <h1 className="text-5xl font-bold text-[#0f172a] mb-4">Smart Content <span className="text-[#0ea5e9]">Fact-Checking</span></h1>
@@ -866,19 +753,33 @@ export default function ContentOps() {
           </div>
         )}
 
-        {/* ── SETUP ── */}
+        {/* SETUP */}
         {view === 'setup' && (
           <div className="max-w-2xl mx-auto">
             <div className="bg-white rounded-xl p-8 border shadow-sm">
               <h2 className="text-2xl font-bold mb-6">Configuration</h2>
               <div className="space-y-4">
-                {[['Claude API Key', 'anthropicKey', 'sk-ant-...'], ['Brave Search Key', 'braveKey', 'BSA...'], ['Webflow Token', 'webflowKey', 'Token'], ['Collection ID', 'collectionId', 'From Webflow CMS']].map(([label, key, ph]) => (
+                {[
+                  ['Claude API Key *', 'anthropicKey', 'sk-ant-...'],
+                  ['Brave Search Key *', 'braveKey', 'BSA...'],
+                  ['Webflow Token *', 'webflowKey', 'Token'],
+                  ['Collection ID *', 'collectionId', 'From Webflow CMS'],
+                  ['Site ID (for image uploads)', 'siteId', 'From Webflow site settings']
+                ].map(([label, key, ph]) => (
                   <div key={key}>
                     <label className="block text-sm font-semibold mb-1">{label}</label>
-                    <input type={key === 'collectionId' ? 'text' : 'password'} value={config[key]} onChange={e => setConfig({...config, [key]: e.target.value})} placeholder={ph}
-                      className="w-full bg-gray-50 border rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#0ea5e9]" />
+                    <input
+                      type={['collectionId', 'siteId'].includes(key) ? 'text' : 'password'}
+                      value={config[key]}
+                      onChange={e => setConfig({...config, [key]: e.target.value})}
+                      placeholder={ph}
+                      className="w-full bg-gray-50 border rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#0ea5e9]"
+                    />
                   </div>
                 ))}
+                <p className="text-xs text-gray-400">
+                  Site ID is optional — only needed for uploading images from your device. Find it in Webflow &rarr; Site Settings &rarr; General.
+                </p>
                 <button onClick={saveConfig} disabled={loading} className="w-full bg-[#0ea5e9] text-white py-3 rounded-lg font-semibold hover:bg-[#0284c7] disabled:opacity-50">
                   {loading ? 'Saving...' : 'Save & Connect'}
                 </button>
@@ -887,7 +788,7 @@ export default function ContentOps() {
           </div>
         )}
 
-        {/* ── DASHBOARD ── */}
+        {/* DASHBOARD */}
         {view === 'dashboard' && (
           <div>
             <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
@@ -897,7 +798,7 @@ export default function ContentOps() {
                   <TrendingUp className="w-4 h-4" />
                   {gscData ? `GSC: ${gscData.blogsCount} blogs` : 'Upload GSC'}
                 </button>
-                <button onClick={testWebflowConnection} disabled={loading} className="bg-blue-500 text-white px-3 py-2 rounded-lg text-sm hover:bg-blue-600"><Zap className="w-4 h-4 inline mr-1" />Test</button>
+                <button onClick={testConnection} disabled={loading} className="bg-blue-500 text-white px-3 py-2 rounded-lg text-sm hover:bg-blue-600"><Zap className="w-4 h-4 inline mr-1" />Test</button>
                 <button onClick={fetchBlogsQuick} disabled={loading} className="bg-green-500 text-white px-3 py-2 rounded-lg text-sm hover:bg-green-600">Quick Load</button>
                 <button onClick={() => fetchBlogs(true)} disabled={loading} className="bg-white text-gray-700 px-3 py-2 rounded-lg text-sm border hover:bg-gray-50">
                   <RefreshCw className={`w-4 h-4 inline mr-1 ${loading ? 'animate-spin' : ''}`} />Load All
@@ -906,7 +807,7 @@ export default function ContentOps() {
             </div>
 
             {loading ? (
-              <div className="text-center py-12"><Loader className="w-10 h-10 text-[#0ea5e9] animate-spin mx-auto mb-3" /><p className="text-gray-500">Loading blogs...</p></div>
+              <div className="text-center py-12"><Loader className="w-10 h-10 text-[#0ea5e9] animate-spin mx-auto mb-3" /><p className="text-gray-500">Loading...</p></div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {blogs.map(blog => {
@@ -937,10 +838,9 @@ export default function ContentOps() {
           </div>
         )}
 
-        {/* ── REVIEW / EDITOR ── */}
+        {/* REVIEW / EDITOR */}
         {view === 'review' && result && (
           <div className="space-y-4">
-            {/* GSC info bar */}
             {result.gscKeywordsUsed?.length > 0 && (
               <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
                 <p className="text-sm font-semibold text-purple-800 mb-2">Optimized with {result.gscKeywordsUsed.length} GSC keywords</p>
@@ -952,26 +852,25 @@ export default function ContentOps() {
               </div>
             )}
 
-            {/* Stats bar */}
+            {/* Stats */}
             <div className="bg-white rounded-lg border p-3 flex items-center gap-4 flex-wrap text-sm">
               <span className="text-gray-600">{result.searchesUsed} searches</span>
-              <span className="text-gray-600">{result.claudeCalls} Claude calls</span>
               <span className="text-gray-600">{result.duration}s</span>
               <span className="bg-blue-100 text-blue-800 px-2 py-0.5 rounded text-xs font-medium">{result.blogType}</span>
+              {result.widgetsProtected > 0 && <span className="bg-amber-100 text-amber-800 px-2 py-0.5 rounded text-xs font-medium">{result.widgetsProtected} widgets protected</span>}
               {highlightedData && <span className="bg-sky-100 text-sky-800 px-2 py-0.5 rounded text-xs font-medium">{highlightedData.changesCount} changes</span>}
+              {result.fromCache && <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded text-xs">cached</span>}
             </div>
 
             {/* Title + Meta */}
             <div className="bg-white rounded-lg border p-4 space-y-3">
               <div>
                 <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Blog Title</label>
-                <input value={blogTitle} onChange={e => setBlogTitle(e.target.value)}
-                  className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0ea5e9]" />
+                <input value={blogTitle} onChange={e => setBlogTitle(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0ea5e9]" />
               </div>
               <div>
                 <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Meta Description <span className="text-gray-400 normal-case font-normal">({metaFieldName})</span></label>
-                <textarea value={metaDescription} onChange={e => setMetaDescription(e.target.value)} rows={2}
-                  className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0ea5e9] resize-none" />
+                <textarea value={metaDescription} onChange={e => setMetaDescription(e.target.value)} rows={2} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0ea5e9] resize-none" />
               </div>
             </div>
 
@@ -991,7 +890,7 @@ export default function ContentOps() {
               )}
             </div>
 
-            {/* EDITOR */}
+            {/* EDIT MODE - contentEditable, raw HTML preserved */}
             {editMode === 'edit' && (
               <div className="bg-white rounded-lg border shadow-sm">
                 {/* Toolbar */}
@@ -999,8 +898,7 @@ export default function ContentOps() {
                   <button onClick={() => execCmd('bold')} className="p-2 rounded hover:bg-gray-200 text-gray-700" title="Bold"><Bold className="w-4 h-4" /></button>
                   <button onClick={() => execCmd('italic')} className="p-2 rounded hover:bg-gray-200 text-gray-700" title="Italic"><Italic className="w-4 h-4" /></button>
                   <div className="w-px h-6 bg-gray-300 mx-1" />
-                  
-                  {/* Heading dropdown */}
+
                   <div className="relative">
                     <button onClick={() => setShowHeadingMenu(!showHeadingMenu)} className="px-2 py-1.5 rounded hover:bg-gray-200 text-gray-700 text-sm font-medium flex items-center gap-1">
                       <Type className="w-4 h-4" />Heading<ChevronDown className="w-3 h-3" />
@@ -1012,9 +910,7 @@ export default function ContentOps() {
                             <span className="font-semibold">H{l}</span> <span className="text-gray-400">Heading {l}</span>
                           </button>
                         ))}
-                        <button onClick={() => { execCmd('formatBlock', 'p'); setShowHeadingMenu(false); }} className="block w-full text-left px-3 py-1.5 hover:bg-gray-100 text-sm text-gray-600">
-                          Paragraph
-                        </button>
+                        <button onClick={() => { execCmd('formatBlock', 'p'); setShowHeadingMenu(false); }} className="block w-full text-left px-3 py-1.5 hover:bg-gray-100 text-sm text-gray-600">Paragraph</button>
                       </div>
                     )}
                   </div>
@@ -1024,30 +920,19 @@ export default function ContentOps() {
                   <button onClick={() => insertListCmd('number')} className="p-2 rounded hover:bg-gray-200 text-gray-700" title="Numbered list"><ListOrdered className="w-4 h-4" /></button>
                   <div className="w-px h-6 bg-gray-300 mx-1" />
 
-                  <button onClick={openLinkModal} className="p-2 rounded hover:bg-gray-200 text-gray-700" title="Insert/Edit link"><Link2 className="w-4 h-4" /></button>
-                  
-                  {/* Image upload button */}
-                  <input 
-                    type="file" 
-                    accept="image/*" 
-                    id="image-upload-input" 
-                    className="hidden" 
-                    onChange={handleImageUpload}
-                  />
-                  <label 
-                    htmlFor="image-upload-input" 
-                    className="p-2 rounded hover:bg-gray-200 text-gray-700 cursor-pointer" 
-                    title="Upload image"
-                  >
+                  <button onClick={openLinkModal} className="p-2 rounded hover:bg-gray-200 text-gray-700" title="Link"><Link2 className="w-4 h-4" /></button>
+
+                  {/* Image upload from device */}
+                  <input type="file" accept="image/*" id="img-upload" className="hidden" onChange={handleImageUpload} />
+                  <label htmlFor="img-upload" className="p-2 rounded hover:bg-gray-200 text-gray-700 cursor-pointer" title="Upload image">
                     <ImagePlus className="w-4 h-4" />
                   </label>
-                  
                   <div className="w-px h-6 bg-gray-300 mx-1" />
 
                   <button onClick={() => execCmd('undo')} className="p-2 rounded hover:bg-gray-200 text-gray-700" title="Undo"><Undo2 className="w-4 h-4" /></button>
                 </div>
 
-                {/* Editable area */}
+                {/* The actual editor - contentEditable preserves raw HTML */}
                 <div
                   ref={editorRef}
                   className="co-editor"
@@ -1061,7 +946,7 @@ export default function ContentOps() {
               </div>
             )}
 
-            {/* PREVIEW (with change highlights) */}
+            {/* PREVIEW MODE - read-only, highlights shown, NEVER editable */}
             {editMode === 'preview' && (
               <div className="bg-white rounded-lg border shadow-sm">
                 <div className="co-editor" style={{ minHeight: 400 }}
@@ -1069,7 +954,7 @@ export default function ContentOps() {
               </div>
             )}
 
-            {/* HTML SOURCE */}
+            {/* HTML SOURCE MODE */}
             {editMode === 'html' && (
               <div className="space-y-3">
                 <textarea
@@ -1085,25 +970,22 @@ export default function ContentOps() {
               </div>
             )}
 
-            {/* Action buttons */}
+            {/* Actions */}
             <div className="flex items-center gap-3 flex-wrap bg-white rounded-lg border p-4">
               <button onClick={publishToWebflow} disabled={loading} className="bg-green-600 text-white px-5 py-2.5 rounded-lg font-semibold hover:bg-green-700 disabled:opacity-50 flex items-center gap-2">
                 {loading ? <Loader className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
                 Publish to Webflow
               </button>
               <button onClick={copyHTMLToClipboard} className={`px-5 py-2.5 rounded-lg font-semibold flex items-center gap-2 border ${copied ? 'bg-green-50 border-green-300 text-green-700' : 'bg-white text-gray-700 hover:bg-gray-50'}`}>
-                <Copy className="w-4 h-4" />
-                {copied ? 'Copied!' : 'Copy HTML'}
+                <Copy className="w-4 h-4" />{copied ? 'Copied!' : 'Copy HTML'}
               </button>
               <button onClick={() => { setView('dashboard'); setResult(null); setSelectedBlog(null); setHighlightedData(null); }}
-                className="bg-white text-gray-500 px-4 py-2.5 rounded-lg border hover:bg-gray-50 text-sm">
-                Back to Dashboard
-              </button>
+                className="bg-white text-gray-500 px-4 py-2.5 rounded-lg border hover:bg-gray-50 text-sm">Back</button>
             </div>
           </div>
         )}
 
-        {/* ── SUCCESS ── */}
+        {/* SUCCESS */}
         {view === 'success' && (
           <div className="max-w-md mx-auto text-center py-16">
             <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4"><CheckCircle className="w-10 h-10 text-green-600" /></div>
@@ -1115,8 +997,7 @@ export default function ContentOps() {
         )}
       </div>
 
-      {/* ── MODALS ── */}
-      {/* Link Modal */}
+      {/* MODALS */}
       {showLinkModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999]" onClick={() => setShowLinkModal(false)}>
           <div className="bg-white rounded-xl p-6 max-w-sm w-full mx-4 space-y-3" onClick={e => e.stopPropagation()}>
@@ -1130,92 +1011,45 @@ export default function ContentOps() {
               <input value={linkText} onChange={e => setLinkText(e.target.value)} placeholder="Link text" className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0ea5e9]" />
             </div>
             <div className="flex gap-2">
-              <button onClick={applyLink} className="flex-1 bg-[#0ea5e9] text-white py-2 rounded-lg font-semibold text-sm hover:bg-[#0284c7]">Apply</button>
-              <button onClick={() => setShowLinkModal(false)} className="flex-1 bg-gray-100 py-2 rounded-lg text-sm hover:bg-gray-200">Cancel</button>
+              <button onClick={applyLink} className="flex-1 bg-[#0ea5e9] text-white py-2 rounded-lg font-semibold text-sm">Apply</button>
+              <button onClick={() => setShowLinkModal(false)} className="flex-1 bg-gray-100 py-2 rounded-lg text-sm">Cancel</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Image Alt Modal */}
       {imageAltModal.show && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999]" 
-             onClick={() => {
-               if (imageAltModal.isNewUpload && imageAltModal.src) {
-                 URL.revokeObjectURL(imageAltModal.src);
-               }
-               setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isNewUpload: false, file: null });
-             }}>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999]"
+          onClick={() => { if (imageAltModal.isUpload && imageAltModal.src) URL.revokeObjectURL(imageAltModal.src); setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isUpload: false, file: null }); }}>
           <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4 space-y-3" onClick={e => e.stopPropagation()}>
-            <h3 className="text-lg font-bold">
-              {imageAltModal.isNewUpload ? 'Add Alt Text for Image' : 'Edit Image'}
-            </h3>
-            
+            <h3 className="text-lg font-bold">{imageAltModal.isUpload ? 'Add Alt Text' : 'Edit Image'}</h3>
             <img src={imageAltModal.src} alt="" className="w-full max-h-48 object-contain rounded-lg bg-gray-100" />
-            
             <div>
-              <label className="block text-xs font-semibold mb-1 text-gray-700">
-                Alt Text <span className="text-red-500">*</span>
-                <span className="font-normal text-gray-500 ml-1">(Required for SEO & Accessibility)</span>
-              </label>
-              <input 
-                value={imageAltModal.currentAlt} 
-                onChange={e => setImageAltModal({ ...imageAltModal, currentAlt: e.target.value })}
-                placeholder="Describe what's in the image..."
-                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0ea5e9]" 
-                autoFocus
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Good: "Person typing on laptop at cafe" | Bad: "image123.jpg"
-              </p>
+              <label className="block text-xs font-semibold mb-1">Alt Text {imageAltModal.isUpload && <span className="text-red-500">*</span>}</label>
+              <input value={imageAltModal.currentAlt} onChange={e => setImageAltModal({...imageAltModal, currentAlt: e.target.value})}
+                placeholder="Describe what's in the image..." className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0ea5e9]" autoFocus />
             </div>
-            
             <div className="flex gap-2">
-              <button 
-                onClick={updateImageAlt} 
-                disabled={imageAltModal.isNewUpload && !imageAltModal.currentAlt.trim()}
-                className="flex-1 bg-[#0ea5e9] text-white py-2 rounded-lg font-semibold text-sm hover:bg-[#0284c7] disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {imageAltModal.isNewUpload ? 'Upload & Insert' : 'Save Alt'}
+              <button onClick={updateImageAlt} disabled={imageAltModal.isUpload && !imageAltModal.currentAlt.trim()}
+                className="flex-1 bg-[#0ea5e9] text-white py-2 rounded-lg font-semibold text-sm disabled:opacity-50">
+                {imageAltModal.isUpload ? 'Upload & Insert' : 'Save'}
               </button>
-              
-              {!imageAltModal.isNewUpload && (
-                <button onClick={deleteImage} className="flex-1 bg-red-500 text-white py-2 rounded-lg font-semibold text-sm hover:bg-red-600">
-                  Delete
-                </button>
-              )}
-              
-              <button 
-                onClick={() => {
-                  if (imageAltModal.isNewUpload && imageAltModal.src) {
-                    URL.revokeObjectURL(imageAltModal.src);
-                  }
-                  setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isNewUpload: false, file: null });
-                }} 
-                className="flex-1 bg-gray-100 py-2 rounded-lg text-sm hover:bg-gray-200"
-              >
-                Cancel
-              </button>
+              {!imageAltModal.isUpload && <button onClick={deleteImage} className="flex-1 bg-red-500 text-white py-2 rounded-lg text-sm">Delete</button>}
+              <button onClick={() => { if (imageAltModal.isUpload && imageAltModal.src) URL.revokeObjectURL(imageAltModal.src); setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isUpload: false, file: null }); }}
+                className="flex-1 bg-gray-100 py-2 rounded-lg text-sm">Cancel</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* GSC Modal */}
       {showGscModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999]" onClick={() => setShowGscModal(false)}>
           <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4 space-y-3" onClick={e => e.stopPropagation()}>
             <h3 className="text-lg font-bold">Upload GSC Data</h3>
             <p className="text-sm text-gray-600">Upload XLSX from Google Search Console (needs Queries + Pages sheets).</p>
-            {gscData && (
-              <div className="p-2 bg-green-50 border border-green-200 rounded text-sm text-green-800 font-medium">
-                {gscData.totalMatches} blogs with keywords loaded
-              </div>
-            )}
+            {gscData && <div className="p-2 bg-green-50 border border-green-200 rounded text-sm text-green-800 font-medium">{gscData.totalMatches} blogs with keywords</div>}
             <input type="file" accept=".xlsx,.xls" onChange={handleGscUpload} disabled={gscUploading} className="w-full bg-gray-50 border rounded px-3 py-2 text-sm" />
-            <button onClick={() => setShowGscModal(false)} className="w-full bg-gray-100 py-2 rounded-lg font-semibold text-sm hover:bg-gray-200">
-              {gscData ? 'Done' : 'Cancel'}
-            </button>
+            <button onClick={() => setShowGscModal(false)} className="w-full bg-gray-100 py-2 rounded-lg font-semibold text-sm">{gscData ? 'Done' : 'Cancel'}</button>
           </div>
         </div>
       )}
