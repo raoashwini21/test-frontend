@@ -1,580 +1,305 @@
-
-import React, { useState, useEffect, useRef } from 'react';
-import { Zap, Settings, RefreshCw, CheckCircle, AlertCircle, Loader, TrendingUp, Search, Sparkles, Code, Eye, Copy } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Zap, Settings, RefreshCw, CheckCircle, AlertCircle, Loader, TrendingUp, Search, Sparkles, Code, Eye, Copy, Bold, Italic, List, ListOrdered, Link2, ImagePlus, Type, Undo2, ChevronDown } from 'lucide-react';
 
 const BACKEND_URL = 'https://test-backend-production-f29b.up.railway.app';
 
-// BOFU Research Prompt (Comparison, Reviews, Alternatives, Pricing)
-const BOFU_RESEARCH_PROMPT = `You are a professional fact-checker and researcher. Your job is to:
-1. Verify ALL claims in the content: pricing, features, stats, company info, technical specs
-2. Use Brave Search strategically: official websites first, 2-3 searches per topic, recent info (2024-2025)
-3. Focus on LinkedIn/SalesRobot specifics
-4. Check for missing AI/NEW features in competitor comparisons
-5. Return structured findings with factChecks and missingFeatures arrays
-Be thorough but concise. Focus on accuracy.`;
-
-// TOFU Research Prompt (Educational, Awareness, General Info)
-const TOFU_RESEARCH_PROMPT = `You are a professional fact-checker for educational content. Your job is to:
-1. Verify general industry claims and statistics about LinkedIn, sales automation, and B2B outreach
-2. Use Brave Search to check: industry trends (2024-2025), best practices from authoritative sources, general statistics
-3. Focus on educational accuracy: LinkedIn platform stats, general limits/policies, industry benchmarks, common best practices
-4. Verify definitions, terminology, and conceptual explanations
-5. Check recent trends and developments in the space
-Be thorough but focus on educational accuracy, not product specifics. Return structured findings with factChecks array.`;
-
-// MOFU Research Prompt (Consideration, How-To, Frameworks)
-const MOFU_RESEARCH_PROMPT = `You are a professional fact-checker for consideration-stage content. Your job is to:
-1. Verify framework claims, methodologies, and strategic guidance
-2. Use Brave Search to check: use case examples, industry comparisons, solution categories, implementation best practices
-3. Focus on buyer guidance: "how to choose" criteria, solution category definitions, implementation timelines, use case validation
-4. Check authoritative sources for recommendations and guidance
-5. Balance general information with solution category comparisons
-Be thorough and balanced. Focus on helping buyers make informed decisions. Return structured findings with factChecks array.`;
-
-// Auto-detect blog type from title
+// ── Blog type detection ─────────────────────────
 const detectBlogType = (title) => {
-  const titleLower = title.toLowerCase();
-  
-  // BOFU keywords (comparison, alternatives, reviews, pricing)
-  const bofuKeywords = ['vs ', ' vs.', 'versus', 'alternative', 'alternatives', 'review', 'pricing', 'comparison', 'compare', 'better than', 'or ', 'which is better', 'worth it', 'pros and cons'];
-  
-  // TOFU keywords (educational, awareness, general info)
-  const tofuKeywords = ['what is', 'what are', 'why', 'top 10', 'top 5', 'tips', 'guide to', 'introduction', 'beginner', 'basics', 'explained', 'definition', 'ultimate guide', 'complete guide'];
-  
-  // MOFU keywords (consideration, how-to, frameworks)
-  const mofuKeywords = ['how to', 'best practices', 'getting started', 'choosing', 'selecting', 'framework', 'strategy', 'guide for', 'steps to', 'ways to', 'mistakes to avoid', 'should you', 'when to use'];
-  
-  // Check for BOFU
-  if (bofuKeywords.some(keyword => titleLower.includes(keyword))) {
-    return 'BOFU';
-  }
-  
-  // Check for TOFU
-  if (tofuKeywords.some(keyword => titleLower.includes(keyword))) {
-    return 'TOFU';
-  }
-  
-  // Check for MOFU
-  if (mofuKeywords.some(keyword => titleLower.includes(keyword))) {
-    return 'MOFU';
-  }
-  
-  // Default: if contains numbers/lists, likely TOFU; otherwise MOFU
-  if (/\d+/.test(titleLower) && (titleLower.includes('tips') || titleLower.includes('ways'))) {
-    return 'TOFU';
-  }
-  
-  // Default to MOFU (safest middle ground)
+  const t = title.toLowerCase();
+  if (['vs ', ' vs.', 'versus', 'alternative', 'review', 'pricing', 'comparison', 'compare', 'better than', 'pros and cons'].some(k => t.includes(k))) return 'BOFU';
+  if (['what is', 'what are', 'why', 'top 10', 'top 5', 'tips', 'guide to', 'beginner', 'explained', 'ultimate guide'].some(k => t.includes(k))) return 'TOFU';
   return 'MOFU';
 };
 
-const RESEARCH_PROMPT = BOFU_RESEARCH_PROMPT; // Kept for backwards compatibility
-
-const WRITING_PROMPT = `You are an expert blog rewriter focused on clarity, accuracy, and engagement.
-
-**CRITICAL WRITING RULES:**
-NEVER USE: Em-dashes, banned words, sentences over 30 words, markdown syntax
-ALWAYS USE: Contractions, active voice, short sentences, HTML bold tags (<strong> or <b>)
-
-**CRITICAL: PRESERVE ALL FORMATTING AND STRUCTURE EXACTLY**
-- Keep ALL heading tags (<h1>, <h2>, <h3>, <h4>, <h5>, <h6>) EXACTLY as they are in the original
-- Keep ALL heading hierarchy the same - do NOT change H2 to H3, or H3 to H2, etc.
-- Keep ALL heading text EXACTLY the same - do NOT rewrite, rephrase, or modify heading content
-- Keep ALL heading IDs and attributes unchanged
-
-**ABSOLUTE RULE FOR HEADINGS:**
-DO NOT modify heading content in any way. Headings must be copied EXACTLY character-for-character from the original HTML.
-Examples:
-- Original: <h2 id="best-linkedin-automation-tools">Best LinkedIn Automation Tools</h2>
-- CORRECT: Keep it EXACTLY as-is
-- WRONG: <h2 id="best-linkedin-automation-tools">Top LinkedIn Automation Tools</h2>
-- WRONG: <h2>Best LinkedIn Automation Tools</h2> (missing ID)
-
-- Keep ALL heading text the same unless it contains factual errors
-- Keep ALL bold (<strong>, <b>) and italic (<em>, <i>) formatting EXACTLY as-is
-- Keep ALL links (<a> tags) EXACTLY as-is - preserve href, target, and all attributes
-- Keep ALL paragraph breaks and spacing EXACTLY as they appear in original
-- Keep ALL list structures (<ul>, <ol>, <li>) EXACTLY as-is
-- Keep ALL class attributes, IDs, and data attributes unchanged
-
-**CRITICAL: LIST STRUCTURE (CRITICAL FOR WEBFLOW):**
-- ALWAYS wrap <li> elements in <ul> or <ol> tags
-- NEVER put <li> directly inside <p> tags
-- CORRECT: <ul role="list"><li role="listitem">Item</li></ul>
-- WRONG: <p><li>Item</li></p>
-- Lists must have role="list" attribute for Webflow
-- List items must have role="listitem" attribute for Webflow
-
-**CRITICAL: PRESERVE ALL SPECIAL ELEMENTS - DO NOT CONVERT TO TEXT**
-- Keep ALL <iframe>, <script>, <embed>, <object>, <video>, <audio>, <canvas>, <form> tags EXACTLY as-is
-- Keep ALL widget classes (w-embed-, w-widget-, info-widget, widget-, etc.) unchanged
-- Keep ALL data attributes (data-*, w-*, webflow-*) unchanged
-- Keep the "hidden" class on widget elements - DO NOT remove it
-- Keep ALL widget structure and nested elements intact (widget-type, info-widget-heading, info-widget-content, etc.)
-- NEVER convert widgets/embeds to text - keep them as functional HTML
-- NEVER escape HTML in widgets - keep < > characters not &lt; &gt;
-
-**WHAT YOU CAN CHANGE:**
-- Fix factual errors (pricing, features, statistics, dates)
-- Remove em-dashes and replace with regular dashes or commas
-- Shorten overly long sentences (30+ words)
-- Add contractions where natural
-- Convert passive voice to active voice
-- Bold important terms using <strong> tags
-
-**WHAT YOU CANNOT CHANGE:**
-- Heading levels (H1, H2, H3, etc.)
-- Paragraph structure and breaks
-- List formatting (bullet vs numbered)
-- Any HTML structure or nesting
-- Widget or embed code
-- Image tags or attributes
-
-Return only the complete rewritten HTML content with all images, tables, widgets, iframes, scripts, embeds, and EXACT heading structure preserved with no modifications to formatting.`;
-
-// IMPROVED HIGHLIGHTING LOGIC - Only highlights real content changes
-const createHighlightedHTML = (originalHTML, updatedHTML) => {
-  const normalizeForComparison = (html) => {
-    return html
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/&[a-z]+;/gi, ' ')
-      .replace(/[^\w\s]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .toLowerCase();
-  };
+// ── Change highlighting ─────────────────────────
+const createHighlightedHTML = (original, updated) => {
+  const norm = (html) => html.replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/gi, ' ').replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
   
-  const splitIntoBlocks = (html) => {
+  const toBlocks = (html) => {
     const parser = new DOMParser();
     const doc = parser.parseFromString(`<div>${html}</div>`, 'text/html');
-    const container = doc.body.firstChild;
     const blocks = [];
-    
-    const processNode = (node) => {
-      if (node.nodeType === Node.ELEMENT_NODE) {
-        const tagName = node.tagName.toUpperCase();
-        const isBlockElement = ['P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'BLOCKQUOTE', 'SECTION', 'ARTICLE'].includes(tagName);
-        const isSpecialElement = ['TABLE', 'IFRAME', 'EMBED', 'SCRIPT', 'IMG', 'FIGURE', 'VIDEO', 'AUDIO', 'CANVAS', 'OBJECT', 'SVG', 'FORM'].includes(tagName);
-        
-        if (isBlockElement || isSpecialElement) {
+    const walk = (node) => {
+      if (node.nodeType === 1) {
+        const tag = node.tagName;
+        if (['P','DIV','H1','H2','H3','H4','H5','H6','LI','BLOCKQUOTE','SECTION','ARTICLE','TABLE','IFRAME','EMBED','SCRIPT','IMG','FIGURE','VIDEO','AUDIO','UL','OL'].includes(tag)) {
           blocks.push(node.outerHTML);
         } else {
-          Array.from(node.childNodes).forEach(processNode);
+          Array.from(node.childNodes).forEach(walk);
         }
-      } else if (node.nodeType === Node.TEXT_NODE && node.textContent.trim()) {
+      } else if (node.nodeType === 3 && node.textContent.trim()) {
         blocks.push(node.textContent);
       }
     };
-    
-    Array.from(container.childNodes).forEach(processNode);
+    Array.from(doc.body.firstChild.childNodes).forEach(walk);
     return blocks;
   };
   
-  const originalBlocks = splitIntoBlocks(originalHTML);
-  const updatedBlocks = splitIntoBlocks(updatedHTML);
-  
-  const originalMap = new Map();
-  originalBlocks.forEach((block, idx) => {
-    const normalized = normalizeForComparison(block);
-    if (normalized && normalized.length > 10) {
-      if (!originalMap.has(normalized)) {
-        originalMap.set(normalized, []);
-      }
-      originalMap.get(normalized).push({ html: block, index: idx, used: false });
-    }
+  const origBlocks = toBlocks(original);
+  const updBlocks = toBlocks(updated);
+  const origMap = new Map();
+  origBlocks.forEach(b => {
+    const n = norm(b);
+    if (n.length > 10) { if (!origMap.has(n)) origMap.set(n, []); origMap.get(n).push({ html: b, used: false }); }
   });
   
-  let highlightedHTML = '';
-  let changesCount = 0;
-  
-  updatedBlocks.forEach((updatedBlock) => {
-    const normalizedUpdated = normalizeForComparison(updatedBlock);
+  let html = '', changes = 0;
+  for (const block of updBlocks) {
+    const n = norm(block);
+    const isSpecial = /<(table|iframe|embed|script|img|figure|video|audio|canvas|object|svg|form)/i.test(block) || /class="[^"]*w(idget|-embed|-widget)[^"]*"/i.test(block);
+    if (isSpecial) { html += block; continue; }
     
-    const isSpecialElement = 
-      updatedBlock.match(/<(table|iframe|embed|script|img|figure|video|audio|canvas|object|svg|form)/i) ||
-      updatedBlock.match(/class="[^"]*widget[^"]*"/i) ||
-      updatedBlock.match(/class="[^"]*-widget[^"]*"/i) ||
-      updatedBlock.match(/class="[^"]*w-embed[^"]*"/i) ||
-      updatedBlock.match(/class="[^"]*w-widget[^"]*"/i) ||
-      updatedBlock.match(/data-w-id/i) ||
-      updatedBlock.match(/data-widget/i);
+    const match = origMap.get(n);
+    if (match) { const m = match.find(x => !x.used); if (m) { m.used = true; html += block; continue; } }
     
-    if (isSpecialElement) {
-      highlightedHTML += updatedBlock;
-      return;
-    }
-    
-    const matchingBlocks = originalMap.get(normalizedUpdated);
-    if (matchingBlocks && matchingBlocks.length > 0) {
-      const match = matchingBlocks.find(m => !m.used);
-      if (match) {
-        match.used = true;
-        highlightedHTML += updatedBlock;
-        return;
+    if (n.length > 20) {
+      const words = new Set(n.split(/\s+/).filter(w => w.length > 3));
+      let found = false;
+      for (const [on, obs] of origMap) {
+        const unused = obs.find(x => !x.used);
+        if (!unused) continue;
+        const ow = new Set(on.split(/\s+/).filter(w => w.length > 3));
+        if (!ow.size) continue;
+        let shared = 0; words.forEach(w => { if (ow.has(w)) shared++; });
+        if (shared / Math.max(words.size, ow.size) >= 0.92) { unused.used = true; found = true; break; }
+        if ([...words].filter(w => !ow.has(w)).length < 4) { unused.used = true; found = true; break; }
+      }
+      if (!found) {
+        html += `<div style="background-color:#e0f2fe;padding:8px;margin:8px 0;border-left:3px solid #0ea5e9;border-radius:4px;">${block}</div>`;
+        changes++;
+        continue;
       }
     }
-    
-    if (normalizedUpdated.length > 20) {
-      let foundSimilar = false;
-      const updatedWords = normalizedUpdated.split(/\s+/).filter(w => w.length > 3);
-      const updatedWordSet = new Set(updatedWords);
-      
-      if (updatedWordSet.size > 0) {
-        for (const [origNormalized, origBlocks] of originalMap.entries()) {
-          const unusedBlock = origBlocks.find(b => !b.used);
-          if (!unusedBlock) continue;
-          
-          const origWords = origNormalized.split(/\s+/).filter(w => w.length > 3);
-          const origWordSet = new Set(origWords);
-          if (origWordSet.size === 0) continue;
-          
-          let matchCount = 0;
-          updatedWordSet.forEach(word => {
-            if (origWordSet.has(word)) matchCount++;
-          });
-          
-          const totalWords = Math.max(updatedWordSet.size, origWordSet.size);
-          const similarity = matchCount / totalWords;
-          const differentWords = updatedWords.filter(w => !origWordSet.has(w)).length;
-          
-          if (similarity >= 0.95 || differentWords < 3) {
-            foundSimilar = true;
-            unusedBlock.used = true;
-            highlightedHTML += updatedBlock;
-            return;
-          }
-        }
-      }
-      
-      if (!foundSimilar) {
-        const highlighted = `<div style="background-color: #e0f2fe; padding: 8px; margin: 8px 0; border-left: 3px solid #0ea5e9; border-radius: 4px;">${updatedBlock}</div>`;
-        highlightedHTML += highlighted;
-        changesCount++;
-        return;
-      }
-    }
-    
-    highlightedHTML += updatedBlock;
-  });
-  
-  return { html: highlightedHTML, changesCount };
+    html += block;
+  }
+  return { html, changesCount: changes };
 };
 
-function VisualEditor({ content, onChange }) {
-  const editorRef = useRef(null);
-  const quillRef = useRef(null);
-  useEffect(() => {
-    if (!window.Quill && !document.querySelector('script[src*="quill"]')) {
-      const link = document.createElement('link');
-      link.rel = 'stylesheet';
-      link.href = 'https://cdn.quilljs.com/1.3.6/quill.snow.css';
-      document.head.appendChild(link);
-      const script = document.createElement('script');
-      script.src = 'https://cdn.quilljs.com/1.3.6/quill.js';
-      script.onload = () => initQuill();
-      document.body.appendChild(script);
-    } else if (window.Quill) {
-      initQuill();
-    }
-  }, []);
-  const initQuill = () => {
-    if (!editorRef.current || quillRef.current) return;
-    const Quill = window.Quill;
-    const BlockEmbed = Quill.import('blots/block/embed');
-    class ImageBlot extends BlockEmbed {
-      static create(value) {
-        let node = super.create();
-        node.setAttribute('src', value.src || value);
-        if (value.alt) node.setAttribute('alt', value.alt);
-        node.setAttribute('style', 'max-width: 100%; height: auto;');
-        return node;
-      }
-      static value(node) {
-        return { src: node.getAttribute('src'), alt: node.getAttribute('alt') };
-      }
-    }
-    ImageBlot.blotName = 'image';
-    ImageBlot.tagName = 'img';
-    Quill.register(ImageBlot);
-    quillRef.current = new Quill(editorRef.current, {
-      theme: 'snow',
-      modules: { toolbar: [[{ 'header': [1, 2, 3, 4, false] }], ['bold', 'italic', 'underline', 'strike'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['link', 'image'], ['clean']] }
-    });
-    const delta = quillRef.current.clipboard.convert(content);
-    quillRef.current.setContents(delta, 'silent');
-    quillRef.current.on('text-change', () => { onChange(quillRef.current.root.innerHTML); });
-  };
-  useEffect(() => {
-    if (quillRef.current && content !== quillRef.current.root.innerHTML) {
-      const cursorPosition = quillRef.current.getSelection();
-      const delta = quillRef.current.clipboard.convert(content);
-      quillRef.current.setContents(delta, 'silent');
-      if (cursorPosition) { try { quillRef.current.setSelection(cursorPosition); } catch (e) { } }
-    }
-  }, [content]);
-  return (
-    <div className="bg-white rounded-lg shadow-xl border border-gray-200">
-      <style>{`.ql-editor img { max-width: 100%; height: auto; display: block; margin: 1rem 0; } .ql-editor h1 { font-size: 2.25rem; font-weight: 700; margin: 2rem 0 1rem 0; } .ql-editor h2 { font-size: 1.875rem; font-weight: 700; margin: 1.75rem 0 1rem 0; } .ql-editor h3 { font-size: 1.5rem; font-weight: 600; margin: 1.5rem 0 0.75rem 0; } .ql-editor h4 { font-size: 1.25rem; font-weight: 600; margin: 1.25rem 0 0.5rem 0; } .ql-editor table { width: 100%; border-collapse: collapse; margin: 1.5rem 0; border: 1px solid #e5e7eb; } .ql-editor th { background-color: #f3f4f6; padding: 0.75rem; border: 1px solid #e5e7eb; } .ql-editor td { padding: 0.75rem; border: 1px solid #e5e7eb; }`}</style>
-      <div ref={editorRef} style={{ minHeight: '600px' }} />
-    </div>
-  );
-}
+// ── List sanitizer ──────────────────────────────
+const sanitizeListHTML = (html) => {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(`<div>${html}</div>`, 'text/html');
+  const root = doc.body.firstChild;
 
+  // Fix orphaned <li> (not inside ul/ol)
+  const orphans = Array.from(root.querySelectorAll('li')).filter(li => {
+    const p = li.parentElement;
+    return p && p.tagName !== 'UL' && p.tagName !== 'OL';
+  });
+
+  if (orphans.length) {
+    const done = new Set();
+    orphans.forEach(li => {
+      if (done.has(li)) return;
+      const group = [li]; done.add(li);
+      let next = li.nextElementSibling;
+      while (next && next.tagName === 'LI' && orphans.includes(next)) { group.push(next); done.add(next); next = next.nextElementSibling; }
+      
+      const ul = doc.createElement('ul');
+      ul.setAttribute('role', 'list');
+      const parent = li.parentElement;
+      if (parent.tagName === 'P' && parent.querySelectorAll('li').length === group.length) {
+        group.forEach(item => { item.setAttribute('role', 'listitem'); ul.appendChild(item); });
+        parent.replaceWith(ul);
+      } else {
+        parent.insertBefore(ul, li);
+        group.forEach(item => { item.setAttribute('role', 'listitem'); ul.appendChild(item); });
+      }
+    });
+  }
+
+  // Fix <p> containing only <li>
+  root.querySelectorAll('p').forEach(p => {
+    const kids = Array.from(p.children);
+    if (kids.length && kids.every(c => c.tagName === 'LI')) {
+      const ul = doc.createElement('ul');
+      ul.setAttribute('role', 'list');
+      kids.forEach(li => { li.setAttribute('role', 'listitem'); ul.appendChild(li); });
+      p.replaceWith(ul);
+    }
+  });
+
+  // Ensure all ul/ol have role="list" and li have role="listitem"
+  root.querySelectorAll('ul, ol').forEach(list => { if (!list.getAttribute('role')) list.setAttribute('role', 'list'); });
+  root.querySelectorAll('li').forEach(li => { if (!li.getAttribute('role')) li.setAttribute('role', 'listitem'); });
+
+  return root.innerHTML;
+};
+
+// ── Editor CSS (injected into contentEditable) ──
+const EDITOR_STYLES = `
+  .co-editor { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 16px; line-height: 1.7; color: #1a1a1a; padding: 32px; min-height: 600px; outline: none; }
+  .co-editor h1 { font-size: 2rem; font-weight: 800; margin: 2rem 0 1rem; line-height: 1.25; }
+  .co-editor h2 { font-size: 1.6rem; font-weight: 700; margin: 1.75rem 0 0.75rem; line-height: 1.3; }
+  .co-editor h3 { font-size: 1.3rem; font-weight: 700; margin: 1.5rem 0 0.5rem; line-height: 1.35; }
+  .co-editor h4 { font-size: 1.1rem; font-weight: 600; margin: 1.25rem 0 0.5rem; }
+  .co-editor p { margin: 0.75rem 0; }
+  .co-editor ul, .co-editor ol { margin: 0.75rem 0; padding-left: 1.5rem; }
+  .co-editor ul { list-style-type: disc; }
+  .co-editor ol { list-style-type: decimal; }
+  .co-editor li { margin: 0.35rem 0; display: list-item !important; }
+  .co-editor a { color: #0ea5e9; text-decoration: underline; }
+  .co-editor img { max-width: 100%; height: auto; display: block; margin: 1rem 0; border-radius: 6px; clear: both; position: relative; z-index: 1; }
+  .co-editor iframe { max-width: 100%; display: block; margin: 1rem 0; clear: both; position: relative; z-index: 1; }
+  .co-editor video { max-width: 100%; display: block; margin: 1rem 0; clear: both; }
+  .co-editor figure { max-width: 100%; margin: 1rem 0; clear: both; display: block; overflow: visible; }
+  .co-editor table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+  .co-editor th, .co-editor td { border: 1px solid #e5e7eb; padding: 0.5rem 0.75rem; text-align: left; }
+  .co-editor th { background: #f9fafb; font-weight: 600; }
+  .co-editor strong, .co-editor b { font-weight: 700; }
+  .co-editor em, .co-editor i { font-style: italic; }
+  .co-editor blockquote { border-left: 3px solid #0ea5e9; margin: 1rem 0; padding: 0.75rem 1rem; background: #f8fafc; }
+  .co-editor [class*="widget"], .co-editor [class*="w-embed"], .co-editor [class*="w-widget"] { display: block; margin: 1rem 0; clear: both; }
+  .co-editor * { max-width: 100%; box-sizing: border-box; }
+`;
+
+// ════════════════════════════════════════════════
+// MAIN APP
+// ════════════════════════════════════════════════
 export default function ContentOps() {
   const [view, setView] = useState('home');
-  const [config, setConfig] = useState({ 
-    anthropicKey: '', 
-    braveKey: '', 
-    webflowKey: '', 
-    collectionId: '' 
-  });
+  const [config, setConfig] = useState({ anthropicKey: '', braveKey: '', webflowKey: '', collectionId: '' });
   const [savedConfig, setSavedConfig] = useState(null);
   const [blogs, setBlogs] = useState([]);
   const [selectedBlog, setSelectedBlog] = useState(null);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState({ type: '', message: '' });
   const [result, setResult] = useState(null);
-  const [viewMode, setViewMode] = useState('changes');
-  const [editMode, setEditMode] = useState('visual');
   const [editedContent, setEditedContent] = useState('');
   const [highlightedData, setHighlightedData] = useState(null);
-  const [imageAltModal, setImageAltModal] = useState({ show: false, src: '', currentAlt: '', index: -1 });
-  const [showHighlights, setShowHighlights] = useState(true);
-  const editablePreviewRef = useRef(null);
-  const afterViewRef = useRef(null);
-  const [showLinkModal, setShowLinkModal] = useState(false);
-  const [showImageModal, setShowImageModal] = useState(false);
-  const [linkUrl, setLinkUrl] = useState('');
-  const [linkText, setLinkText] = useState('');
-  const [editingLink, setEditingLink] = useState(null);
-  const [imageUrl, setImageUrl] = useState('');
-  const [imageFile, setImageFile] = useState(null);
-  const [savedSelection, setSavedSelection] = useState(null);
   const [blogTitle, setBlogTitle] = useState('');
   const [metaDescription, setMetaDescription] = useState('');
   const [metaFieldName, setMetaFieldName] = useState('post-summary');
-  const [blogCache, setBlogCache] = useState(null);
+  const [blogCacheData, setBlogCacheData] = useState(null);
   const [cacheTimestamp, setCacheTimestamp] = useState(null);
-
-  // GSC state
   const [gscData, setGscData] = useState(null);
   const [showGscModal, setShowGscModal] = useState(false);
   const [gscUploading, setGscUploading] = useState(false);
+  const [showLinkModal, setShowLinkModal] = useState(false);
+  const [linkUrl, setLinkUrl] = useState('');
+  const [linkText, setLinkText] = useState('');
+  const [editingLink, setEditingLink] = useState(null);
+  const [showImageModal, setShowImageModal] = useState(false);
+  const [imageUrl, setImageUrl] = useState('');
+  const [imageAltModal, setImageAltModal] = useState({ show: false, src: '', currentAlt: '', index: -1 });
+  const [editMode, setEditMode] = useState('edit'); // 'edit' | 'preview' | 'html'
+  const [showHighlights, setShowHighlights] = useState(true);
+  const [showHeadingMenu, setShowHeadingMenu] = useState(false);
+  const [htmlSource, setHtmlSource] = useState('');
+  const [copied, setCopied] = useState(false);
 
+  const editorRef = useRef(null);
+  const savedRange = useRef(null);
+
+  // ── Init ──────────────────────────────────────
   useEffect(() => {
-    const saved = localStorage.getItem('contentops_config');
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      setSavedConfig(parsed);
-      setConfig(parsed);
-    }
+    const s = localStorage.getItem('contentops_config');
+    if (s) { const p = JSON.parse(s); setSavedConfig(p); setConfig(p); }
+    const g = localStorage.getItem('contentops_gsc_data');
+    if (g) { try { setGscData(JSON.parse(g)); } catch {} }
+  }, []);
 
-    const savedGsc = localStorage.getItem('contentops_gsc_data');
-    if (savedGsc) {
-      try {
-        const parsed = JSON.parse(savedGsc);
-        setGscData(parsed);
-        console.log('✅ Loaded GSC data:', parsed.totalMatches, 'blogs');
-      } catch (e) {
-        console.error('Failed to parse GSC data');
-      }
+  // ── Editor helpers ────────────────────────────
+  const saveRange = () => {
+    const sel = window.getSelection();
+    if (sel.rangeCount > 0) savedRange.current = sel.getRangeAt(0).cloneRange();
+  };
+
+  const restoreRange = () => {
+    if (savedRange.current) {
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(savedRange.current);
+    }
+  };
+
+  const syncFromEditor = useCallback(() => {
+    if (editorRef.current) setEditedContent(editorRef.current.innerHTML);
+  }, []);
+
+  const loadIntoEditor = useCallback((html) => {
+    if (editorRef.current) {
+      editorRef.current.innerHTML = html;
+      setEditedContent(html);
     }
   }, []);
 
-  useEffect(() => {
-    if (result && result.content && result.originalContent && !highlightedData) {
-      const highlighted = createHighlightedHTML(result.originalContent, result.content);
-      setHighlightedData(highlighted);
-    }
-  }, [result]);
-
-  useEffect(() => {
-    if (editablePreviewRef.current && editMode === 'html') {
-      editablePreviewRef.current.innerHTML = editedContent;
-    }
-  }, [editedContent, editMode]);
-
-  useEffect(() => {
-    if (afterViewRef.current && viewMode === 'changes') {
-      if (showHighlights) {
-        afterViewRef.current.innerHTML = highlightedData?.html || editedContent;
-      } else {
-        const currentContent = afterViewRef.current.innerHTML;
-        const cleanedContent = currentContent.replace(
-          /<div style="background-color: #e0f2fe; padding: 8px; margin: 8px 0; border-left: 3px solid #0ea5e9; border-radius: 4px;">(.*?)<\/div>/gs,
-          '$1'
-        );
-        afterViewRef.current.innerHTML = cleanedContent;
-      }
-    }
-  }, [viewMode, showHighlights, highlightedData]);
-
-  useEffect(() => {
-    if (afterViewRef.current) {
-      const links = afterViewRef.current.querySelectorAll('a');
-      links.forEach(link => {
-        link.style.color = '#0ea5e9';
-        link.style.textDecoration = 'underline';
-        link.style.cursor = 'pointer';
-        link.style.pointerEvents = 'auto';
-      });
-    }
-  }, [editedContent, viewMode]);
-
-  const handleEditablePreviewInput = () => {
-    if (editablePreviewRef.current) {
-      setEditedContent(editablePreviewRef.current.innerHTML);
-    }
-  };
-
-  const handleAfterViewInput = () => {
-    if (!afterViewRef.current) return;
-    const rawHTML = afterViewRef.current.innerHTML;
-    const cleanedHTML = rawHTML.replace(
-      /<div style="background-color: #e0f2fe; padding: 8px; margin: 8px 0; border-left: 3px solid #0ea5e9; border-radius: 4px;">(.*?)<\/div>/gs,
-      '$1'
-    );
-    setEditedContent(cleanedHTML);
-  };
-
-  const saveSelection = () => {
-    const selection = window.getSelection();
-    if (selection.rangeCount > 0) {
-      setSavedSelection(selection.getRangeAt(0).cloneRange());
-    }
-  };
-
-  const formatText = (command) => {
-    const selection = window.getSelection();
-    if (!selection.rangeCount) return;
-    const range = selection.getRangeAt(0);
-    const selectedText = range.toString();
-    if (!selectedText) return;
-    const parentElement = range.commonAncestorContainer.parentElement;
-    const tag = command === 'bold' ? 'STRONG' : 'EM';
-    let formattedParent = parentElement;
-    while (formattedParent && formattedParent !== afterViewRef.current) {
-      if (formattedParent.tagName === tag || (command === 'bold' && formattedParent.tagName === 'B') || (command === 'italic' && formattedParent.tagName === 'I')) {
-        const text = formattedParent.textContent;
-        const textNode = document.createTextNode(text);
-        formattedParent.parentNode.replaceChild(textNode, formattedParent);
-        if (afterViewRef.current) {
-          setEditedContent(afterViewRef.current.innerHTML);
-        }
-        return;
-      }
-      formattedParent = formattedParent.parentElement;
-    }
-    const element = document.createElement(command === 'bold' ? 'strong' : 'em');
-    element.textContent = selectedText;
-    range.deleteContents();
-    range.insertNode(element);
-    range.setStartAfter(element);
-    range.setEndAfter(element);
-    selection.removeAllRanges();
-    selection.addRange(range);
-    if (afterViewRef.current) {
-      setEditedContent(afterViewRef.current.innerHTML);
-    }
+  // ── Formatting commands ───────────────────────
+  const execCmd = (cmd, val) => {
+    editorRef.current?.focus();
+    document.execCommand(cmd, false, val || null);
+    syncFromEditor();
   };
 
   const formatHeading = (level) => {
-    if (!afterViewRef.current) return;
-    const selection = window.getSelection();
-    if (!selection.rangeCount) return;
-    const range = selection.getRangeAt(0);
+    if (!editorRef.current) return;
+    const sel = window.getSelection();
+    if (!sel.rangeCount) return;
+    const range = sel.getRangeAt(0);
     let block = range.startContainer;
-    while (block && block !== afterViewRef.current) {
-      if (block.nodeType === Node.ELEMENT_NODE && 
-          ['P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI'].includes(block.tagName)) {
-        break;
-      }
+    while (block && block !== editorRef.current) {
+      if (block.nodeType === 1 && /^(P|DIV|H[1-6]|LI)$/.test(block.tagName)) break;
       block = block.parentNode;
     }
-    if (!block || block === afterViewRef.current) {
-      const heading = document.createElement(`h${level}`);
-      heading.textContent = selection.toString() || 'Heading';
-      range.deleteContents();
-      range.insertNode(heading);
-      range.setStartAfter(heading);
-      range.collapse(true);
-      selection.removeAllRanges();
-      selection.addRange(range);
+    if (!block || block === editorRef.current) return;
+
+    // If already this heading level, convert back to P
+    if (block.tagName === `H${level}`) {
+      const p = document.createElement('p');
+      p.innerHTML = block.innerHTML;
+      // Copy any classes/ids
+      Array.from(block.attributes).forEach(a => { if (a.name !== 'id') p.setAttribute(a.name, a.value); });
+      block.parentNode.replaceChild(p, block);
     } else {
-      const heading = document.createElement(`h${level}`);
-      heading.innerHTML = block.innerHTML;
-      block.parentNode.replaceChild(heading, block);
-      const newRange = document.createRange();
-      newRange.selectNodeContents(heading);
-      newRange.collapse(false);
-      selection.removeAllRanges();
-      selection.addRange(newRange);
+      const h = document.createElement(`h${level}`);
+      h.innerHTML = block.innerHTML;
+      // Preserve existing id and class from original heading
+      if (block.id) h.id = block.id;
+      if (block.className) h.className = block.className;
+      block.parentNode.replaceChild(h, block);
     }
-    setEditedContent(afterViewRef.current.innerHTML);
+    syncFromEditor();
+    setShowHeadingMenu(false);
   };
 
-  const formatList = (type) => {
-    if (!afterViewRef.current) return;
-    const selection = window.getSelection();
-    if (!selection.rangeCount) return;
-    
-    const range = selection.getRangeAt(0);
-    let block = range.startContainer;
-    
-    while (block && block !== afterViewRef.current) {
-      if (block.nodeType === Node.ELEMENT_NODE && 
-          ['P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI'].includes(block.tagName)) {
-        break;
-      }
-      block = block.parentNode;
-    }
-    
-    if (!block || block === afterViewRef.current) return;
-    
-    const parentList = block.closest('ul, ol');
-    if (parentList) {
-      const fragment = document.createDocumentFragment();
-      Array.from(parentList.children).forEach(li => {
-        const p = document.createElement('p');
-        p.innerHTML = li.innerHTML;
-        fragment.appendChild(p);
-      });
-      parentList.parentNode.replaceChild(fragment, parentList);
-    } else {
-      const listElement = document.createElement(type === 'bullet' ? 'ul' : 'ol');
-      listElement.setAttribute('role', 'list');
-      
-      const li = document.createElement('li');
-      li.setAttribute('role', 'listitem');
-      li.innerHTML = block.innerHTML;
-      listElement.appendChild(li);
-      block.parentNode.replaceChild(listElement, block);
-    }
-    
-    setEditedContent(afterViewRef.current.innerHTML);
+  const insertListCmd = (type) => {
+    execCmd(type === 'bullet' ? 'insertUnorderedList' : 'insertOrderedList');
   };
 
-  const insertLink = () => {
-    const selection = window.getSelection();
-    if (selection.rangeCount > 0) {
-      const range = selection.getRangeAt(0);
-      let element = range.commonAncestorContainer;
-      while (element && element !== afterViewRef.current) {
-        if (element.tagName === 'A') {
-          setEditingLink(element);
-          setLinkUrl(element.href);
-          setLinkText(element.textContent || '');
-          setShowLinkModal(true);
-          return;
-        }
-        element = element.parentElement;
+  const handleEditorClick = (e) => {
+    // Click on image
+    if (e.target.tagName === 'IMG') {
+      const imgs = Array.from(editorRef.current.querySelectorAll('img'));
+      setImageAltModal({ show: true, src: e.target.src, currentAlt: e.target.alt || '', index: imgs.indexOf(e.target) });
+      return;
+    }
+    // Click on link
+    let el = e.target;
+    while (el && el !== editorRef.current) {
+      if (el.tagName === 'A') {
+        if (e.ctrlKey || e.metaKey) return;
+        e.preventDefault();
+        setEditingLink(el);
+        setLinkUrl(el.href);
+        setLinkText(el.textContent || '');
+        setShowLinkModal(true);
+        return;
+      }
+      el = el.parentElement;
+    }
+  };
+
+  const openLinkModal = () => {
+    saveRange();
+    const sel = window.getSelection();
+    if (sel.rangeCount) {
+      let el = sel.getRangeAt(0).commonAncestorContainer;
+      while (el && el !== editorRef.current) {
+        if (el.tagName === 'A') { setEditingLink(el); setLinkUrl(el.href); setLinkText(el.textContent); setShowLinkModal(true); return; }
+        el = el.parentElement;
       }
     }
-    saveSelection();
-    setEditingLink(null);
-    setLinkUrl('');
-    setLinkText('');
-    setShowLinkModal(true);
+    setEditingLink(null); setLinkUrl(''); setLinkText(''); setShowLinkModal(true);
   };
 
   const applyLink = () => {
@@ -583,892 +308,454 @@ export default function ContentOps() {
       editingLink.href = linkUrl;
       editingLink.target = '_blank';
       editingLink.rel = 'noopener noreferrer';
-      if (linkText && linkText.trim()) {
-        editingLink.textContent = linkText;
-      }
+      if (linkText.trim()) editingLink.textContent = linkText;
     } else {
-      if (savedSelection) {
-        const selection = window.getSelection();
-        selection.removeAllRanges();
-        selection.addRange(savedSelection.cloneRange());
-        const selectedText = selection.toString();
-        const link = document.createElement('a');
-        link.href = linkUrl;
-        link.target = '_blank';
-        link.rel = 'noopener noreferrer';
-        link.style.color = '#0ea5e9';
-        link.style.textDecoration = 'underline';
-        link.textContent = linkText?.trim() || selectedText || linkUrl;
-        if (selectedText) {
-          savedSelection.deleteContents();
-        }
-        savedSelection.insertNode(link);
-        savedSelection.setStartAfter(link);
-        savedSelection.collapse(true);
+      restoreRange();
+      const sel = window.getSelection();
+      const selectedText = sel.toString();
+      const a = document.createElement('a');
+      a.href = linkUrl; a.target = '_blank'; a.rel = 'noopener noreferrer';
+      a.style.color = '#0ea5e9'; a.style.textDecoration = 'underline';
+      a.textContent = linkText?.trim() || selectedText || linkUrl;
+      if (savedRange.current) {
+        if (selectedText) savedRange.current.deleteContents();
+        savedRange.current.insertNode(a);
       }
     }
-    if (afterViewRef.current) {
-      setEditedContent(afterViewRef.current.innerHTML);
-    }
-    setShowLinkModal(false);
-    setLinkUrl('');
-    setLinkText('');
-    setEditingLink(null);
+    syncFromEditor();
+    setShowLinkModal(false); setLinkUrl(''); setLinkText(''); setEditingLink(null);
   };
 
-  const insertImage = () => {
-    saveSelection();
-    setShowImageModal(true);
-  };
+  const openImageModal = () => { saveRange(); setImageUrl(''); setShowImageModal(true); };
 
-  const applyImage = async () => {
-    let imageSrc = '';
-    if (imageFile) {
-      try {
-        const base64 = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result);
-          reader.onerror = reject;
-          reader.readAsDataURL(imageFile);
-        });
-        imageSrc = base64;
-      } catch (error) {
-        console.error('Error reading image file:', error);
-        return;
-      }
-    } else if (imageUrl) {
-      imageSrc = imageUrl;
-    } else {
-      return;
-    }
+  const applyImage = () => {
+    if (!imageUrl) return;
+    restoreRange();
     const img = document.createElement('img');
-    img.src = imageSrc;
-    img.style.maxWidth = '100%';
-    img.style.height = 'auto';
-    img.style.display = 'block';
-    img.style.margin = '1rem 0';
-    img.alt = 'Inserted image';
-    if (savedSelection) {
-      const selection = window.getSelection();
-      selection.removeAllRanges();
-      selection.addRange(savedSelection.cloneRange());
-      savedSelection.insertNode(img);
-      savedSelection.setStartAfter(img);
-      savedSelection.collapse(true);
-    } else if (afterViewRef.current) {
-      afterViewRef.current.appendChild(img);
-    }
-    if (afterViewRef.current) {
-      setEditedContent(afterViewRef.current.innerHTML);
-    }
-    setShowImageModal(false);
-    setImageUrl('');
-    setImageFile(null);
-  };
-
-  const handleContentClick = (e) => {
-    if (e.target.tagName === 'IMG') {
-      const src = e.target.src;
-      const alt = e.target.alt || '';
-      const imgIndex = Array.from(e.currentTarget.querySelectorAll('img')).indexOf(e.target);
-      setImageAltModal({ show: true, src, currentAlt: alt, index: imgIndex });
-      return;
-    }
-    
-    let targetElement = e.target;
-    while (targetElement && targetElement !== e.currentTarget) {
-      if (targetElement.tagName === 'A') {
-        if (e.ctrlKey || e.metaKey) return;
-        e.preventDefault();
-        e.stopPropagation();
-        setEditingLink(targetElement);
-        setLinkUrl(targetElement.href);
-        setLinkText(targetElement.textContent || '');
-        setShowLinkModal(true);
-        return;
-      }
-      targetElement = targetElement.parentElement;
-    }
+    img.src = imageUrl; img.alt = 'Image'; img.style.maxWidth = '100%'; img.style.height = 'auto'; img.style.display = 'block'; img.style.margin = '1rem 0';
+    if (savedRange.current) { savedRange.current.insertNode(img); savedRange.current.setStartAfter(img); }
+    else if (editorRef.current) editorRef.current.appendChild(img);
+    syncFromEditor();
+    setShowImageModal(false); setImageUrl('');
   };
 
   const updateImageAlt = () => {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(editedContent, 'text/html');
-    const images = doc.querySelectorAll('img');
-    if (images[imageAltModal.index]) {
-      images[imageAltModal.index].setAttribute('alt', imageAltModal.currentAlt);
-      const newContent = doc.body.innerHTML;
-      setEditedContent(newContent);
-      if (afterViewRef.current) {
-        afterViewRef.current.innerHTML = newContent;
-      }
+    const imgs = editorRef.current?.querySelectorAll('img');
+    if (imgs && imgs[imageAltModal.index]) {
+      imgs[imageAltModal.index].alt = imageAltModal.currentAlt;
+      syncFromEditor();
     }
     setImageAltModal({ show: false, src: '', currentAlt: '', index: -1 });
   };
 
   const deleteImage = () => {
-    if (!confirm('Are you sure you want to delete this image?')) return;
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(editedContent, 'text/html');
-    const images = doc.querySelectorAll('img');
-    if (images[imageAltModal.index]) {
-      const imageElement = images[imageAltModal.index];
-      const figure = imageElement.closest('figure');
-      if (figure) {
-        figure.remove();
-      } else {
-        imageElement.remove();
-      }
-      const newContent = doc.body.innerHTML;
-      setEditedContent(newContent);
-      if (afterViewRef.current) {
-        afterViewRef.current.innerHTML = newContent;
-      }
+    if (!confirm('Delete this image?')) return;
+    const imgs = editorRef.current?.querySelectorAll('img');
+    if (imgs && imgs[imageAltModal.index]) {
+      const img = imgs[imageAltModal.index];
+      const fig = img.closest('figure');
+      (fig || img).remove();
+      syncFromEditor();
     }
     setImageAltModal({ show: false, src: '', currentAlt: '', index: -1 });
   };
 
+  // ── HTML Source editing ───────────────────────
+  const switchToHtmlMode = () => {
+    setHtmlSource(editedContent);
+    setEditMode('html');
+  };
+
+  const applyHtmlSource = () => {
+    setEditedContent(htmlSource);
+    if (editorRef.current) editorRef.current.innerHTML = htmlSource;
+    setEditMode('edit');
+  };
+
+  // ── Copy HTML ─────────────────────────────────
   const copyHTMLToClipboard = () => {
-    const sanitizedHTML = sanitizeListHTML(editedContent);
-    navigator.clipboard.writeText(sanitizedHTML).then(() => {
-      setStatus({ 
-        type: 'success', 
-        message: '✅ HTML copied to clipboard! You can now use it in your n8n workflow.' 
-      });
-      setTimeout(() => {
-        setStatus({ type: '', message: '' });
-      }, 3000);
-    }).catch(err => {
-      console.error('Failed to copy:', err);
-      setStatus({ 
-        type: 'error', 
-        message: '❌ Failed to copy HTML. Please try again.' 
-      });
+    const cleaned = sanitizeListHTML(editedContent);
+    navigator.clipboard.writeText(cleaned).then(() => {
+      setCopied(true);
+      setStatus({ type: 'success', message: 'HTML copied to clipboard!' });
+      setTimeout(() => { setCopied(false); setStatus({ type: '', message: '' }); }, 3000);
     });
   };
 
-  // GSC helpers
+  // ── GSC helpers ───────────────────────────────
   const getGscKeywordsForBlog = (blog) => {
-    if (!gscData || !gscData.data) return null;
-    const slug = blog.fieldData.slug || (blog.fieldData.name && blog.fieldData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-'));
-    const pageData = gscData.data[slug];
-    if (!pageData) return null;
-    return {
-      hasTraffic: true,
-      clicks: pageData.clicks,
-      impressions: pageData.impressions,
-      position: pageData.position,
-      ctr: pageData.ctr,
-      url: pageData.url,
-      keywords: pageData.keywords || [],
-      hasKeywords: pageData.hasKeywords || false
-    };
+    if (!gscData?.data) return null;
+    const slug = blog.fieldData.slug || blog.fieldData.name?.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    return gscData.data[slug] || null;
   };
 
   const handleGscUpload = async (event) => {
-    const file = event.target.files && event.target.files[0];
+    const file = event.target.files?.[0];
     if (!file) return;
     setGscUploading(true);
     setStatus({ type: 'info', message: 'Processing GSC data...' });
+
     const reader = new FileReader();
     reader.onload = async (e) => {
       try {
         if (typeof XLSX === 'undefined') {
           await new Promise((resolve, reject) => {
-            const script = document.createElement('script');
-            script.src = 'https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js';
-            script.onload = resolve;
-            script.onerror = reject;
-            document.head.appendChild(script);
+            const s = document.createElement('script');
+            s.src = 'https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js';
+            s.onload = resolve; s.onerror = reject;
+            document.head.appendChild(s);
           });
         }
-        const data = new Uint8Array(e.target.result);
-        const workbook = XLSX.read(data, { type: 'array' });
-        const queriesSheet = workbook.SheetNames.find(name => name.toLowerCase().includes('quer'));
-        const pagesSheet = workbook.SheetNames.find(name => name.toLowerCase().includes('page'));
-        if (!queriesSheet || !pagesSheet) throw new Error('Could not find Queries or Pages sheet');
-        const queriesData = XLSX.utils.sheet_to_json(workbook.Sheets[queriesSheet]);
-        const pagesData = XLSX.utils.sheet_to_json(workbook.Sheets[pagesSheet]);
-        const gscByUrl = {};
-        let totalMatches = 0;
+        const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+        const qSheet = wb.SheetNames.find(n => n.toLowerCase().includes('quer'));
+        const pSheet = wb.SheetNames.find(n => n.toLowerCase().includes('page'));
+        if (!qSheet || !pSheet) throw new Error('Need Queries and Pages sheets');
 
-        const allQueries = queriesData.map(row => ({
-          query: (row['Top queries'] || row['Query'] || row['Queries'] || '').toLowerCase(),
-          clicks: parseFloat(row['Clicks'] || 0),
-          impressions: parseFloat(row['Impressions'] || 0),
-          ctr: parseFloat(row['CTR'] || 0) * 100,
-          position: parseFloat(row['Position'] || 0)
+        const queries = XLSX.utils.sheet_to_json(wb.Sheets[qSheet]);
+        const pages = XLSX.utils.sheet_to_json(wb.Sheets[pSheet]);
+
+        const allQ = queries.map(r => ({
+          query: (r['Top queries'] || r['Query'] || '').toLowerCase(),
+          clicks: parseFloat(r['Clicks'] || 0),
+          impressions: parseFloat(r['Impressions'] || 0),
+          ctr: parseFloat(r['CTR'] || 0) * 100,
+          position: parseFloat(r['Position'] || 0)
         })).filter(q => q.query);
 
-        for (const row of pagesData) {
-          const pageUrl = row['Top pages'] || row['Page'] || row['Pages'] || '';
-          if (!pageUrl || !pageUrl.includes('/blogs/')) continue;
+        const gscByUrl = {};
+        let total = 0;
+
+        for (const row of pages) {
+          const url = row['Top pages'] || row['Page'] || '';
+          if (!url.includes('/blogs/')) continue;
           let slug = '';
-          try {
-            const url = new URL(pageUrl);
-            const parts = url.pathname.split('/').filter(p => p);
-            slug = parts[parts.length - 1];
-          } catch (e) {
-            continue;
-          }
+          try { slug = new URL(url).pathname.split('/').filter(Boolean).pop(); } catch { continue; }
           if (!slug) continue;
 
           const slugWords = slug.replace(/-/g, ' ').toLowerCase();
-          const matchedKeywords = [];
-
-          for (const query of allQueries) {
+          const matched = [];
+          for (const q of allQ) {
             let score = 0;
-            const queryWords = query.query.split(' ');
-            for (const word of queryWords) {
-              if (word.length > 3 && slugWords.includes(word)) score += 2;
-            }
-            if (slugWords.includes(query.query) || query.query.includes(slug.replace(/-/g, ' '))) {
-              score += 5;
-            }
-            if (score >= 4) {
-              matchedKeywords.push({ ...query, matchScore: score });
-            }
+            q.query.split(' ').forEach(w => { if (w.length > 3 && slugWords.includes(w)) score += 2; });
+            if (slugWords.includes(q.query) || q.query.includes(slug.replace(/-/g, ' '))) score += 5;
+            if (score >= 4) matched.push({ ...q, matchScore: score });
           }
-
-          matchedKeywords.sort((a, b) => {
-            if (b.matchScore !== a.matchScore) return b.matchScore - a.matchScore;
-            return a.position - b.position;
-          });
-
-          const topKeywords = matchedKeywords.slice(0, 10);
-          if (topKeywords.length > 0) {
+          matched.sort((a, b) => b.matchScore !== a.matchScore ? b.matchScore - a.matchScore : a.position - b.position);
+          const top = matched.slice(0, 10);
+          if (top.length) {
             gscByUrl[slug] = {
-              url: pageUrl,
-              clicks: parseFloat(row['Clicks'] || 0),
-              impressions: parseFloat(row['Impressions'] || 0),
-              ctr: parseFloat(row['CTR'] || 0) * 100,
-              position: parseFloat(row['Position'] || 0),
-              keywords: topKeywords,
-              hasKeywords: true
+              url, clicks: parseFloat(row['Clicks'] || 0), impressions: parseFloat(row['Impressions'] || 0),
+              ctr: parseFloat(row['CTR'] || 0) * 100, position: parseFloat(row['Position'] || 0),
+              keywords: top, hasKeywords: true
             };
-            totalMatches++;
+            total++;
           }
         }
 
-        if (totalMatches === 0) throw new Error('No keyword matches found');
-
-        const gscDataObj = {
-          data: gscByUrl,
-          uploadedAt: new Date().toISOString(),
-          totalMatches,
-          blogsCount: Object.keys(gscByUrl).length,
-          type: 'xlsx-matched'
-        };
-
-        localStorage.setItem('contentops_gsc_data', JSON.stringify(gscDataObj));
-        setGscData(gscDataObj);
-        setStatus({ type: 'success', message: `✅ Matched keywords to ${totalMatches} blogs!` });
-
-        setTimeout(() => {
-          setStatus({ type: '', message: '' });
-          setShowGscModal(false);
-        }, 2000);
-      } catch (error) {
-        setStatus({ type: 'error', message: 'Failed: ' + error.message });
-      } finally {
-        setGscUploading(false);
-      }
+        if (!total) throw new Error('No keyword matches found');
+        const obj = { data: gscByUrl, uploadedAt: new Date().toISOString(), totalMatches: total, blogsCount: Object.keys(gscByUrl).length, type: 'xlsx-matched' };
+        localStorage.setItem('contentops_gsc_data', JSON.stringify(obj));
+        setGscData(obj);
+        setStatus({ type: 'success', message: `Matched keywords to ${total} blogs!` });
+        setTimeout(() => { setShowGscModal(false); setStatus({ type: '', message: '' }); }, 2000);
+      } catch (err) { setStatus({ type: 'error', message: err.message }); }
+      finally { setGscUploading(false); }
     };
-    reader.onerror = () => {
-      setStatus({ type: 'error', message: 'Failed to read XLSX file.' });
-      setGscUploading(false);
-    };
+    reader.onerror = () => { setStatus({ type: 'error', message: 'Failed to read file' }); setGscUploading(false); };
     reader.readAsArrayBuffer(file);
   };
 
+  // ── API calls ─────────────────────────────────
   const testWebflowConnection = async () => {
     setLoading(true);
-    setStatus({ type: 'info', message: 'Testing Webflow connection...' });
+    setStatus({ type: 'info', message: 'Testing connection...' });
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000);
-      const response = await fetch(
-        `${BACKEND_URL}/api/webflow?collectionId=${config.collectionId}&limit=1&offset=0`,
-        {
-          headers: {
-            'Authorization': `Bearer ${config.webflowKey}`,
-            'accept': 'application/json'
-          },
-          signal: controller.signal
-        }
-      );
-      clearTimeout(timeoutId);
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(`Webflow API error: ${response.status} - ${errorData.message || 'Unknown error'}`);
-      }
-      const data = await response.json();
-      setStatus({
-        type: 'success',
-        message: `✅ Connection successful! Test returned ${data.items?.length || 0} blog (Webflow API working).`
+      const ctrl = new AbortController();
+      setTimeout(() => ctrl.abort(), 15000);
+      const r = await fetch(`${BACKEND_URL}/api/webflow?collectionId=${config.collectionId}&limit=1&offset=0`, {
+        headers: { 'Authorization': `Bearer ${config.webflowKey}` }, signal: ctrl.signal
       });
+      if (!r.ok) throw new Error(`Error ${r.status}`);
+      setStatus({ type: 'success', message: 'Connection OK!' });
       setTimeout(() => fetchBlogs(), 1000);
-    } catch (error) {
-      if (error.name === 'AbortError') {
-        setStatus({ 
-          type: 'error', 
-          message: '❌ Connection test timed out after 15s. Webflow API is not responding. Check: 1) Token valid? 2) Collection ID correct? 3) Webflow status page?' 
-        });
-      } else {
-        setStatus({ 
-          type: 'error', 
-          message: `❌ Connection failed: ${error.message}. Check your Webflow token and Collection ID.` 
-        });
-      }
-    } finally {
-      setLoading(false);
-    }
+    } catch (e) {
+      setStatus({ type: 'error', message: e.name === 'AbortError' ? 'Timed out (15s)' : e.message });
+    } finally { setLoading(false); }
   };
 
   const fetchBlogsQuick = async () => {
     setLoading(true);
-    setStatus({ type: 'info', message: '⚡ Quick loading recent blogs...' });
+    setStatus({ type: 'info', message: 'Quick loading...' });
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000);
-      const response = await fetch(
-        `${BACKEND_URL}/api/webflow?collectionId=${config.collectionId}&limit=10&offset=0`,
-        {
-          headers: {
-            'Authorization': `Bearer ${config.webflowKey}`,
-            'accept': 'application/json'
-          },
-          signal: controller.signal
-        }
-      );
-      clearTimeout(timeoutId);
-      if (!response.ok) throw new Error(`Failed: ${response.status}`);
-      const data = await response.json();
-      const items = data.items || [];
-      const uniqueItems = [];
-      const seenIds = new Set();
-      for (const item of items) {
-        if (!seenIds.has(item.id)) {
-          seenIds.add(item.id);
-          uniqueItems.push(item);
-        }
-      }
-      setBlogs(uniqueItems);
-      setBlogCache(uniqueItems);
-      setCacheTimestamp(Date.now());
-      setStatus({
-        type: 'success',
-        message: `⚡ Quick loaded ${uniqueItems.length} recent blogs`
+      const ctrl = new AbortController();
+      setTimeout(() => ctrl.abort(), 30000);
+      const r = await fetch(`${BACKEND_URL}/api/webflow?collectionId=${config.collectionId}&limit=10&offset=0`, {
+        headers: { 'Authorization': `Bearer ${config.webflowKey}` }, signal: ctrl.signal
       });
+      if (!r.ok) throw new Error(`Error ${r.status}`);
+      const d = await r.json();
+      const seen = new Set(); const unique = (d.items || []).filter(i => { if (seen.has(i.id)) return false; seen.add(i.id); return true; });
+      setBlogs(unique); setBlogCacheData(unique); setCacheTimestamp(Date.now());
+      setStatus({ type: 'success', message: `Loaded ${unique.length} blogs` });
       setView('dashboard');
-    } catch (error) {
-      if (error.name === 'AbortError') {
-        setStatus({ 
-          type: 'error', 
-          message: 'Quick load timed out. Webflow API is very slow - try again or check Webflow status.' 
-        });
-      } else {
-        setStatus({ type: 'error', message: error.message });
-      }
-    } finally {
-      setLoading(false);
-    }
+    } catch (e) { setStatus({ type: 'error', message: e.message }); }
+    finally { setLoading(false); }
   };
 
   const saveConfig = () => {
     if (!config.anthropicKey || !config.braveKey || !config.webflowKey || !config.collectionId) {
-      setStatus({ type: 'error', message: 'Please fill in all fields' });
-      return;
+      setStatus({ type: 'error', message: 'Fill all fields' }); return;
     }
     localStorage.setItem('contentops_config', JSON.stringify(config));
     setSavedConfig(config);
-    setStatus({ type: 'success', message: 'Configuration saved!' });
+    setStatus({ type: 'success', message: 'Saved!' });
     testWebflowConnection();
   };
 
-  const fetchBlogs = async (forceRefresh = false) => {
-    const cacheAge = cacheTimestamp ? Date.now() - cacheTimestamp : Infinity;
-    const CACHE_DURATION = 10 * 60 * 1000;
-    if (!forceRefresh && blogCache && cacheAge < CACHE_DURATION) {
-      setBlogs(blogCache);
-      const minutesAgo = Math.round(cacheAge / 60000);
-      setStatus({ 
-        type: 'success', 
-        message: `${blogCache.length} blogs (cached ${minutesAgo}m ago)` 
-      });
-      setView('dashboard');
+  const fetchBlogs = async (force = false) => {
+    const age = cacheTimestamp ? Date.now() - cacheTimestamp : Infinity;
+    if (!force && blogCacheData && age < 600000) {
+      setBlogs(blogCacheData); setView('dashboard');
+      setStatus({ type: 'success', message: `${blogCacheData.length} blogs (cached)` });
       return;
     }
-
     setLoading(true);
-    setStatus({ type: 'info', message: 'Fetching blogs... This may take 1-2 minutes.' });
-
+    setStatus({ type: 'info', message: 'Loading all blogs...' });
     try {
-      let allItems = [];
-      const limit = 100;
-      let offset = 0;
-      let hasMore = true;
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 180000);
-
-      while (hasMore) {
-        setStatus({ 
-          type: 'info', 
-          message: `Fetching blogs... ${allItems.length} unique blogs loaded${offset > 0 ? ', loading more...' : ''}` 
-        });
-
-        const response = await fetch(
-          `${BACKEND_URL}/api/webflow?collectionId=${config.collectionId}&limit=${limit}&offset=${offset}`,
-          {
-            headers: {
-              'Authorization': `Bearer ${config.webflowKey}`,
-              'accept': 'application/json'
-            },
-            signal: controller.signal
-          }
-        );
-
-        if (!response.ok) {
-          clearTimeout(timeoutId);
-          throw new Error(`Failed at offset ${offset}: ${response.status}`);
-        }
-
-        const data = await response.json();
-        const items = data.items || [];
-        const cacheHit = response.headers.get('X-Cache') === 'HIT';
-
-        if (cacheHit && offset === 0) {
-          allItems = items;
-          hasMore = false;
-          const uniqueItems = [];
-          const seenIds = new Set();
-          for (const item of allItems) {
-            if (!seenIds.has(item.id)) {
-              seenIds.add(item.id);
-              uniqueItems.push(item);
-            }
-          }
-          allItems = uniqueItems;
-          setBlogs([...allItems]);
-          break;
-        }
-
-        const uniqueNewItems = items.filter(item => !allItems.some(existing => existing.id === item.id));
-        allItems.push(...uniqueNewItems);
-        setBlogs([...allItems]);
-
-        if (items.length < limit) {
-          hasMore = false;
-        } else {
-          offset += limit;
-          await new Promise(resolve => setTimeout(resolve, 500));
-        }
-      }
-
-      clearTimeout(timeoutId);
-
-      const finalUniqueItems = [];
-      const finalSeenIds = new Set();
-      for (const item of allItems) {
-        if (!finalSeenIds.has(item.id)) {
-          finalSeenIds.add(item.id);
-          finalUniqueItems.push(item);
-        }
-      }
-
-      const duplicatesRemoved = allItems.length - finalUniqueItems.length;
-      setBlogs(finalUniqueItems);
-      setBlogCache(finalUniqueItems);
-      setCacheTimestamp(Date.now());
-      setStatus({
-        type: 'success',
-        message: `✅ Loaded ${finalUniqueItems.length} unique blogs${duplicatesRemoved > 0 ? ` (removed ${duplicatesRemoved} duplicates)` : ''}`
+      const ctrl = new AbortController();
+      setTimeout(() => ctrl.abort(), 180000);
+      const r = await fetch(`${BACKEND_URL}/api/webflow?collectionId=${config.collectionId}`, {
+        headers: { 'Authorization': `Bearer ${config.webflowKey}` }, signal: ctrl.signal
       });
+      if (!r.ok) throw new Error(`Error ${r.status}`);
+      const d = await r.json();
+      const seen = new Set(); const unique = (d.items || []).filter(i => { if (seen.has(i.id)) return false; seen.add(i.id); return true; });
+      setBlogs(unique); setBlogCacheData(unique); setCacheTimestamp(Date.now());
+      setStatus({ type: 'success', message: `Loaded ${unique.length} blogs` });
       setView('dashboard');
-    } catch (error) {
-      if (error.name === 'AbortError') {
-        setStatus({ 
-          type: 'error', 
-          message: 'Request timed out after 3 minutes. Webflow may be slow - try again in a moment.' 
-        });
-      } else {
-        setStatus({ type: 'error', message: error.message });
-      }
-    } finally {
-      setLoading(false);
-    }
+    } catch (e) { setStatus({ type: 'error', message: e.name === 'AbortError' ? 'Timed out' : e.message }); }
+    finally { setLoading(false); }
   };
 
+  // ── Smart Check (analyze) ─────────────────────
   const analyzeBlog = async (blog) => {
     setSelectedBlog(blog);
     setLoading(true);
+    setHighlightedData(null);
+    setResult(null);
+
+    const title = blog.fieldData.name;
+    setBlogTitle(title);
+
+    // Detect meta field
+    for (const f of ['excerpt','post-summary','summary','meta-description','description','seo-description']) {
+      if (blog.fieldData[f]) { setMetaDescription(blog.fieldData[f]); setMetaFieldName(f); break; }
+    }
 
     const gscInfo = getGscKeywordsForBlog(blog);
-    const hasGscKeywords = gscInfo && gscInfo.hasKeywords && gscInfo.keywords.length > 0;
+    const hasGsc = gscInfo?.hasKeywords && gscInfo.keywords.length > 0;
 
-    const blogTitle = blog.fieldData.name;
-    setBlogTitle(blogTitle);
+    setStatus({ type: 'info', message: hasGsc ? `Optimizing with ${gscInfo.keywords.length} GSC keywords + web search...` : 'Smart analysis in progress...' });
 
-    const fieldChecks = [
-      'excerpt',
-      'post-summary', 
-      'summary',
-      'meta-description',
-      'description',
-      'seo-description'
-    ];
-    
-    let metaDescriptionValue = '';
-    let detectedFieldName = 'post-summary';
-    
-    for (const fieldName of fieldChecks) {
-      if (blog.fieldData[fieldName]) {
-        metaDescriptionValue = blog.fieldData[fieldName];
-        detectedFieldName = fieldName;
-        break;
-      }
-    }
-    
-    setMetaDescription(metaDescriptionValue);
-    setMetaFieldName(detectedFieldName);
-
-    const blogType = detectBlogType(blogTitle);
-    let selectedResearchPrompt;
-    if (blogType === 'BOFU') {
-      selectedResearchPrompt = BOFU_RESEARCH_PROMPT;
-    } else if (blogType === 'TOFU') {
-      selectedResearchPrompt = TOFU_RESEARCH_PROMPT;
-    } else {
-      selectedResearchPrompt = MOFU_RESEARCH_PROMPT;
-    }
-
-    if (hasGscKeywords) {
-      setStatus({ 
-        type: 'info', 
-        message: `🎯 Optimizing with ${gscInfo.keywords.length} GSC keywords + web search...` 
-      });
-    } else {
-      setStatus({ type: 'info', message: 'Smart analysis in progress (15-20s)...' });
-    }
-
-    const fullOriginalContent = blog.fieldData['post-body'] || '';
+    const original = blog.fieldData['post-body'] || '';
 
     try {
-      const gscKeywordStrings = hasGscKeywords ? gscInfo.keywords.map(k => k.query) : null;
-      const response = await fetch(`${BACKEND_URL}/api/analyze`, {
+      const r = await fetch(`${BACKEND_URL}/api/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          blogContent: fullOriginalContent,
-          title: blogTitle,
+          blogContent: original,
+          title,
           anthropicKey: config.anthropicKey,
           braveKey: config.braveKey,
-          researchPrompt: selectedResearchPrompt,
-          writingPrompt: WRITING_PROMPT,
-          gscKeywords: gscKeywordStrings,
-          gscPosition: gscInfo ? gscInfo.position : null
+          gscKeywords: hasGsc ? gscInfo.keywords.map(k => k.query) : null,
+          gscPosition: gscInfo?.position || null
         })
       });
+      if (!r.ok) { const e = await r.json(); throw new Error(e.error || 'Analysis failed'); }
+      const data = await r.json();
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Analysis failed');
-      }
-
-      const data = await response.json();
-      let updatedContent = data.content || fullOriginalContent;
-      updatedContent = updatedContent.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-
-      const highlighted = createHighlightedHTML(fullOriginalContent, updatedContent);
+      let updated = (data.content || original).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      const highlighted = createHighlightedHTML(original, updated);
       setHighlightedData(highlighted);
 
       setResult({
-        changes: data.changes || [],
         searchesUsed: data.searchesUsed || 0,
         claudeCalls: data.claudeCalls || 0,
         sectionsUpdated: data.sectionsUpdated || 0,
-        content: updatedContent,
-        originalContent: fullOriginalContent,
+        content: updated,
+        originalContent: original,
         duration: data.duration || 0,
-        blogType: blogType,
-        gscOptimized: data.gscOptimized || false,
-        gscKeywordsUsed: hasGscKeywords ? gscInfo.keywords : null
+        blogType: detectBlogType(title),
+        gscOptimized: data.gscOptimized,
+        gscKeywordsUsed: hasGsc ? gscInfo.keywords : null
       });
 
-      setEditedContent(updatedContent);
+      setEditedContent(updated);
       setShowHighlights(true);
-
-      const successMsg = hasGscKeywords 
-        ? `✅ Optimized with ${gscInfo.keywords.length} keywords + web search!`
-        : '✅ Analysis complete!';
-
-      setStatus({ type: 'success', message: successMsg });
+      setEditMode('edit');
+      setStatus({ type: 'success', message: hasGsc ? `Optimized with ${gscInfo.keywords.length} keywords!` : 'Analysis complete!' });
       setView('review');
-      setViewMode('changes');
-    } catch (error) {
-      setStatus({ type: 'error', message: error.message });
-    } finally {
-      setLoading(false);
-    }
+    } catch (e) { setStatus({ type: 'error', message: e.message }); }
+    finally { setLoading(false); }
   };
 
-  // Fix malformed lists before publishing
-  const sanitizeListHTML = (html) => {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(`<div>${html}</div>`, 'text/html');
-    const container = doc.body.firstChild;
-
-    const orphanedListItems = Array.from(container.querySelectorAll('li')).filter(li => {
-      const parent = li.parentElement;
-      return parent && parent.tagName !== 'UL' && parent.tagName !== 'OL';
-    });
-
-    if (orphanedListItems.length > 0) {
-      const processedLis = new Set();
-      orphanedListItems.forEach(li => {
-        if (processedLis.has(li)) return;
-        const group = [li];
-        processedLis.add(li);
-        let nextSibling = li.nextElementSibling;
-        while (nextSibling && nextSibling.tagName === 'LI' && orphanedListItems.includes(nextSibling)) {
-          group.push(nextSibling);
-          processedLis.add(nextSibling);
-          nextSibling = nextSibling.nextElementSibling;
-        }
-        if (group.length > 0) {
-          const ul = document.createElement('ul');
-          ul.setAttribute('role', 'list');
-          const parent = li.parentElement;
-          if (parent.tagName === 'P' && parent.children.length === 1 && parent.children[0] === li) {
-            group.forEach(item => {
-              item.setAttribute('role', 'listitem');
-              ul.appendChild(item);
-            });
-            parent.replaceWith(ul);
-          } else {
-            parent.insertBefore(ul, li);
-            group.forEach(item => {
-              item.setAttribute('role', 'listitem');
-              ul.appendChild(item);
-            });
-          }
-        }
-      });
-    }
-
-    const paragraphs = container.querySelectorAll('p');
-    paragraphs.forEach(p => {
-      const children = Array.from(p.children);
-      const allLi = children.length > 0 && children.every(child => child.tagName === 'LI');
-      if (allLi) {
-        const ul = document.createElement('ul');
-        ul.setAttribute('role', 'list');
-        children.forEach(li => {
-          li.setAttribute('role', 'listitem');
-          ul.appendChild(li);
-        });
-        p.replaceWith(ul);
-      }
-    });
-
-    return container.innerHTML;
-  };
-
+  // ── Publish ───────────────────────────────────
   const publishToWebflow = async () => {
     if (!result || !selectedBlog) return;
-    if (!blogTitle.trim()) {
-      setStatus({ type: 'error', message: 'Title cannot be empty' });
-      return;
-    }
-    if (!editedContent.trim()) {
-      setStatus({ type: 'error', message: 'Content cannot be empty' });
-      return;
-    }
+    if (!blogTitle.trim()) { setStatus({ type: 'error', message: 'Title empty' }); return; }
+    if (!editedContent.trim()) { setStatus({ type: 'error', message: 'Content empty' }); return; }
 
     setLoading(true);
-    setStatus({ type: 'info', message: 'Publishing to Webflow...' });
-    const maxRetries = 3;
-    let attempt = 0;
+    setStatus({ type: 'info', message: 'Publishing...' });
 
-    while (attempt < maxRetries) {
+    const sanitized = sanitizeListHTML(editedContent);
+    const fieldData = { name: blogTitle.trim(), 'post-body': sanitized };
+    if (metaDescription.trim()) fieldData[metaFieldName] = metaDescription.trim();
+
+    for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        attempt++;
-        if (attempt > 1) {
-          setStatus({ type: 'info', message: `Retrying... (Attempt ${attempt}/${maxRetries})` });
-          await new Promise(resolve => setTimeout(resolve, 2000));
-        }
-
-        const sanitizedContent = sanitizeListHTML(editedContent);
-
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 120000);
-
-        const fieldData = {
-          name: blogTitle.trim(),
-          'post-body': sanitizedContent
-        };
-        if (metaDescription.trim()) {
-          fieldData[metaFieldName] = metaDescription.trim();
-        }
-
-        const response = await fetch(`${BACKEND_URL}/api/webflow?collectionId=${config.collectionId}&itemId=${selectedBlog.id}`, {
+        if (attempt > 1) { setStatus({ type: 'info', message: `Retry ${attempt}/3...` }); await new Promise(r => setTimeout(r, 2000)); }
+        const ctrl = new AbortController();
+        setTimeout(() => ctrl.abort(), 120000);
+        const r = await fetch(`${BACKEND_URL}/api/webflow?collectionId=${config.collectionId}&itemId=${selectedBlog.id}`, {
           method: 'PATCH',
-          headers: { 
-            'Authorization': `Bearer ${config.webflowKey}`, 
-            'Content-Type': 'application/json', 
-            'accept': 'application/json' 
-          },
+          headers: { 'Authorization': `Bearer ${config.webflowKey}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ fieldData }),
-          signal: controller.signal
+          signal: ctrl.signal
         });
-
-        clearTimeout(timeoutId);
-        const responseData = await response.json();
-
-        if (!response.ok) {
-          throw new Error(responseData.error || responseData.message || `HTTP ${response.status}: ${response.statusText}`);
-        }
-
-        setStatus({ type: 'success', message: '✅ Published successfully!' });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || d.message || `HTTP ${r.status}`);
+        setStatus({ type: 'success', message: 'Published!' });
         setView('success');
         setLoading(false);
         return;
-      } catch (error) {
-        if (error.name === 'AbortError') {
-          if (attempt === maxRetries) {
-            setStatus({ 
-              type: 'error', 
-              message: 'Request timed out. Webflow may be slow - your content might be too large or Webflow is responding slowly.' 
-            });
-            setLoading(false);
-            return;
-          }
-          continue;
-        }
-        if (attempt === maxRetries) {
-          const errorMessage = error.message || 'Unknown error occurred';
-          setStatus({ 
-            type: 'error', 
-            message: `Failed to publish after ${maxRetries} attempts: ${errorMessage}` 
-          });
-          setLoading(false);
-          return;
-        }
-        continue;
+      } catch (e) {
+        if (attempt === 3) { setStatus({ type: 'error', message: `Failed: ${e.message}` }); setLoading(false); return; }
       }
     }
   };
 
+  // ── Load content into editor when switching modes
+  useEffect(() => {
+    if (editMode === 'edit' && editorRef.current && editedContent) {
+      // Only set if different to avoid cursor jump
+      if (editorRef.current.innerHTML !== editedContent) {
+        editorRef.current.innerHTML = editedContent;
+      }
+    }
+  }, [editMode]);
+
+  // ════════════════════════════════════════════════
+  // RENDER
+  // ════════════════════════════════════════════════
   return (
     <div className="min-h-screen bg-gray-50">
+      <style>{EDITOR_STYLES}</style>
+
+      {/* Nav */}
       <nav className="bg-[#0f172a] border-b border-gray-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-3 cursor-pointer" onClick={() => setView('home')}>
-              <div className="w-10 h-10 bg-[#0ea5e9] rounded-lg flex items-center justify-center">
-                <Sparkles className="w-6 h-6 text-white" />
-              </div>
+              <div className="w-10 h-10 bg-[#0ea5e9] rounded-lg flex items-center justify-center"><Sparkles className="w-6 h-6 text-white" /></div>
               <span className="text-2xl font-bold text-white">ContentOps</span>
             </div>
             <div className="flex items-center gap-4">
-              {savedConfig && (
-                <>
-                  <button onClick={() => setView('dashboard')} className="text-gray-300 hover:text-white font-medium">Dashboard</button>
-                  <button onClick={() => setView('setup')} className="text-gray-300 hover:text-white"><Settings className="w-5 h-5" /></button>
-                </>
-              )}
+              {savedConfig && <>
+                <button onClick={() => setView('dashboard')} className="text-gray-300 hover:text-white font-medium">Dashboard</button>
+                <button onClick={() => setView('setup')} className="text-gray-300 hover:text-white"><Settings className="w-5 h-5" /></button>
+              </>}
             </div>
           </div>
         </div>
       </nav>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Status bar */}
+        {status.message && (
+          <div className={`mb-6 p-4 rounded-lg flex items-start gap-3 ${status.type === 'error' ? 'bg-red-50 border border-red-200' : status.type === 'success' ? 'bg-green-50 border border-green-200' : 'bg-blue-50 border border-blue-200'}`}>
+            {status.type === 'error' ? <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" /> :
+             status.type === 'success' ? <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" /> :
+             <Loader className="w-5 h-5 text-blue-500 animate-spin flex-shrink-0 mt-0.5" />}
+            <p className={`text-sm ${status.type === 'error' ? 'text-red-800' : status.type === 'success' ? 'text-green-800' : 'text-blue-800'}`}>{status.message}</p>
+          </div>
+        )}
+
+        {/* ── HOME ── */}
         {view === 'home' && (
-          <div className="text-center max-w-4xl mx-auto">
-            <div className="mb-8">
-              <div className="inline-block px-4 py-2 bg-[#0ea5e9] bg-opacity-10 rounded-full border border-[#0ea5e9] border-opacity-30 mb-6">
-                <span className="text-[#0ea5e9] text-sm font-semibold">Powered by Brave Search + Claude AI + GSC</span>
-              </div>
-              <h1 className="text-6xl font-bold text-[#0f172a] mb-4">Smart Content<br /><span className="text-[#0ea5e9]">Fact-Checking</span></h1>
-              <p className="text-xl text-gray-600">Brave Search • AI-powered rewrites • GSC Keywords • Full blog diff view</p>
-            </div>
-            <button onClick={() => setView(savedConfig ? 'dashboard' : 'setup')} className="bg-[#0ea5e9] text-white px-10 py-4 rounded-lg text-lg font-bold hover:bg-[#0284c7] shadow-lg">
-              {savedConfig ? 'Go to Dashboard →' : 'Get Started →'}
+          <div className="text-center max-w-4xl mx-auto pt-12">
+            <h1 className="text-5xl font-bold text-[#0f172a] mb-4">Smart Content <span className="text-[#0ea5e9]">Fact-Checking</span></h1>
+            <p className="text-lg text-gray-600 mb-8">Brave + Google Search &bull; Claude AI rewrites &bull; GSC keyword optimization</p>
+            <button onClick={() => setView(savedConfig ? 'dashboard' : 'setup')} className="bg-[#0ea5e9] text-white px-10 py-4 rounded-lg text-lg font-bold hover:bg-[#0284c7]">
+              {savedConfig ? 'Go to Dashboard' : 'Get Started'}
             </button>
           </div>
         )}
 
+        {/* ── SETUP ── */}
         {view === 'setup' && (
           <div className="max-w-2xl mx-auto">
-            <div className="bg-white rounded-xl p-8 border shadow-lg">
-              <h2 className="text-3xl font-bold text-[#0f172a] mb-6">Configuration</h2>
+            <div className="bg-white rounded-xl p-8 border shadow-sm">
+              <h2 className="text-2xl font-bold mb-6">Configuration</h2>
               <div className="space-y-4">
-                <div><label className="block text-sm font-semibold mb-2">Claude API Key</label><input type="password" value={config.anthropicKey} onChange={(e) => setConfig({...config, anthropicKey: e.target.value})} placeholder="sk-ant-..." className="w-full bg-gray-50 border rounded px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#0ea5e9]" /></div>
-                <div><label className="block text-sm font-semibold mb-2">Brave Search API Key</label><input type="password" value={config.braveKey} onChange={(e) => setConfig({...config, braveKey: e.target.value})} placeholder="BSA..." className="w-full bg-gray-50 border rounded px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#0ea5e9]" /></div>
-                <div><label className="block text-sm font-semibold mb-2">Webflow API Token</label><input type="password" value={config.webflowKey} onChange={(e) => setConfig({...config, webflowKey: e.target.value})} placeholder="Token" className="w-full bg-gray-50 border rounded px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#0ea5e9]" /></div>
-                <div><label className="block text-sm font-semibold mb-2">Collection ID</label><input type="text" value={config.collectionId} onChange={(e) => setConfig({...config, collectionId: e.target.value})} placeholder="From Webflow CMS" className="w-full bg-gray-50 border rounded px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[#0ea5e9]" /></div>
-                <button onClick={saveConfig} disabled={loading} className="w-full bg-[#0ea5e9] text-white py-3 rounded-lg font-semibold hover:bg-[#0284c7] disabled:opacity-50">{loading ? 'Saving...' : 'Save & Continue'}</button>
+                {[['Claude API Key', 'anthropicKey', 'sk-ant-...'], ['Brave Search Key', 'braveKey', 'BSA...'], ['Webflow Token', 'webflowKey', 'Token'], ['Collection ID', 'collectionId', 'From Webflow CMS']].map(([label, key, ph]) => (
+                  <div key={key}>
+                    <label className="block text-sm font-semibold mb-1">{label}</label>
+                    <input type={key === 'collectionId' ? 'text' : 'password'} value={config[key]} onChange={e => setConfig({...config, [key]: e.target.value})} placeholder={ph}
+                      className="w-full bg-gray-50 border rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#0ea5e9]" />
+                  </div>
+                ))}
+                <button onClick={saveConfig} disabled={loading} className="w-full bg-[#0ea5e9] text-white py-3 rounded-lg font-semibold hover:bg-[#0284c7] disabled:opacity-50">
+                  {loading ? 'Saving...' : 'Save & Connect'}
+                </button>
               </div>
-              {status.message && <div className={`mt-4 p-4 rounded-lg ${status.type === 'error' ? 'bg-red-50 border border-red-200 text-red-800' : 'bg-green-50 border border-green-200 text-green-800'}`}><p className="text-sm">{status.message}</p></div>}
             </div>
           </div>
         )}
 
+        {/* ── DASHBOARD ── */}
         {view === 'dashboard' && (
           <div>
-            <div className="flex items-center justify-between mb-8">
-              <h2 className="text-3xl font-bold text-[#0f172a]">Your Blog Posts</h2>
-              <div className="flex items-center gap-3">
-                <button onClick={() => setShowGscModal(true)} className="bg-purple-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-purple-700 text-sm font-semibold">
+            <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+              <h2 className="text-2xl font-bold">Blog Posts</h2>
+              <div className="flex items-center gap-2 flex-wrap">
+                <button onClick={() => setShowGscModal(true)} className="bg-purple-600 text-white px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-purple-700 text-sm font-semibold">
                   <TrendingUp className="w-4 h-4" />
-                  {gscData ? `GSC: ${gscData.blogsCount || gscData.totalMatches} blogs` : 'Upload GSC Data'}
+                  {gscData ? `GSC: ${gscData.blogsCount} blogs` : 'Upload GSC'}
                 </button>
-                <button onClick={testWebflowConnection} disabled={loading} className="bg-blue-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-600 text-sm">
-                  <Zap className="w-4 h-4" />
-                  Test Connection
-                </button>
-                <button onClick={fetchBlogsQuick} disabled={loading} className="bg-green-500 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-green-600 text-sm">
-                  ⚡ Quick Load (10)
-                </button>
-                <button onClick={() => fetchBlogs(true)} disabled={loading} className="bg-white text-gray-700 px-4 py-2 rounded-lg flex items-center gap-2 border hover:bg-gray-50">
-                  <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-                  <span>Load All</span>
-                  {cacheTimestamp && !loading && (
-                    <span className="text-xs text-gray-500 ml-1">
-                      ({Math.round((Date.now() - cacheTimestamp) / 60000)}m ago)
-                    </span>
-                  )}
+                <button onClick={testWebflowConnection} disabled={loading} className="bg-blue-500 text-white px-3 py-2 rounded-lg text-sm hover:bg-blue-600"><Zap className="w-4 h-4 inline mr-1" />Test</button>
+                <button onClick={fetchBlogsQuick} disabled={loading} className="bg-green-500 text-white px-3 py-2 rounded-lg text-sm hover:bg-green-600">Quick Load</button>
+                <button onClick={() => fetchBlogs(true)} disabled={loading} className="bg-white text-gray-700 px-3 py-2 rounded-lg text-sm border hover:bg-gray-50">
+                  <RefreshCw className={`w-4 h-4 inline mr-1 ${loading ? 'animate-spin' : ''}`} />Load All
                 </button>
               </div>
             </div>
+
             {loading ? (
-              <div className="text-center py-12"><Loader className="w-12 h-12 text-[#0ea5e9] animate-spin mx-auto mb-4" /><p className="text-gray-600">Loading...</p></div>
+              <div className="text-center py-12"><Loader className="w-10 h-10 text-[#0ea5e9] animate-spin mx-auto mb-3" /><p className="text-gray-500">Loading blogs...</p></div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {blogs.map(blog => {
-                  const gscInfo = getGscKeywordsForBlog(blog);
+                  const gsc = getGscKeywordsForBlog(blog);
                   return (
-                    <div key={blog.id} className="bg-white rounded-xl p-6 border shadow-sm hover:shadow-md transition-all">
-                      <h3 className="font-semibold text-[#0f172a] mb-2 line-clamp-2">{blog.fieldData.name}</h3>
-                      <p className="text-sm text-gray-600 mb-4 line-clamp-3">{blog.fieldData['post-summary'] || 'No description'}</p>
-                      {gscInfo && (
-                        <div className="mb-4 space-y-2">
-                          <div className="flex items-center gap-2 text-xs bg-purple-50 border border-purple-200 rounded px-3 py-2">
+                    <div key={blog.id} className="bg-white rounded-xl p-5 border hover:shadow-md transition-shadow">
+                      <h3 className="font-semibold text-[#0f172a] mb-2 line-clamp-2 text-sm">{blog.fieldData.name}</h3>
+                      <p className="text-xs text-gray-500 mb-3 line-clamp-2">{blog.fieldData['post-summary'] || 'No description'}</p>
+                      {gsc && (
+                        <div className="mb-3 space-y-1">
+                          <div className="flex items-center gap-1 text-xs bg-purple-50 border border-purple-200 rounded px-2 py-1">
                             <TrendingUp className="w-3 h-3 text-purple-600" />
-                            <span className="text-purple-700 font-semibold">
-                              {Math.round(gscInfo.clicks)} clicks • Pos {gscInfo.position.toFixed(1)}
-                            </span>
+                            <span className="text-purple-700 font-medium">{Math.round(gsc.clicks)} clicks &bull; Pos {gsc.position.toFixed(1)}</span>
                           </div>
-                          {gscInfo.hasKeywords && gscInfo.keywords.length > 0 && (
-                            <div className="text-xs text-gray-600 bg-gray-50 rounded px-3 py-2">
-                              <span className="font-semibold text-gray-700">🎯 Keywords: </span>
-                              {gscInfo.keywords.slice(0, 3).map(k => k.query).join(', ')}
-                              {gscInfo.keywords.length > 3 && ` +${gscInfo.keywords.length - 3} more`}
-                            </div>
-                          )}
+                          {gsc.hasKeywords && <div className="text-xs text-gray-500 bg-gray-50 rounded px-2 py-1 truncate">
+                            {gsc.keywords.slice(0, 3).map(k => k.query).join(', ')}
+                          </div>}
                         </div>
                       )}
-                      <button onClick={() => analyzeBlog(blog)} disabled={loading} className="w-full bg-[#0ea5e9] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#0284c7] disabled:opacity-50">{loading && selectedBlog?.id === blog.id ? <Loader className="w-4 h-4 animate-spin mx-auto" /> : '⚡ Smart Check'}</button>
+                      <button onClick={() => analyzeBlog(blog)} disabled={loading} className="w-full bg-[#0ea5e9] text-white px-3 py-2 rounded-lg text-sm font-semibold hover:bg-[#0284c7] disabled:opacity-50">
+                        {loading && selectedBlog?.id === blog.id ? <Loader className="w-4 h-4 animate-spin mx-auto" /> : 'Smart Check'}
+                      </button>
                     </div>
                   );
                 })}
@@ -1477,95 +764,245 @@ export default function ContentOps() {
           </div>
         )}
 
+        {/* ── REVIEW / EDITOR ── */}
         {view === 'review' && result && (
-          <div className="space-y-6">
-            {result?.gscKeywordsUsed && result.gscKeywordsUsed.length > 0 && (
-              <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex-1">
-                    <p className="text-sm font-semibold text-purple-800 mb-2">
-                      🎯 Optimized with {result.gscKeywordsUsed.length} GSC keywords
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      {result.gscKeywordsUsed.slice(0, 8).map((kw, i) => (
-                        <span key={i} className="text-xs bg-white px-3 py-1 rounded border border-purple-300 text-purple-700">
-                          {kw.query}
-                        </span>
-                      ))}
-                      {result.gscKeywordsUsed.length > 8 && (
-                        <span className="text-xs text-purple-600 px-2 py-1">
-                          +{result.gscKeywordsUsed.length - 8} more
-                        </span>
-                      )}
-                    </div>
-                  </div>
+          <div className="space-y-4">
+            {/* GSC info bar */}
+            {result.gscKeywordsUsed?.length > 0 && (
+              <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+                <p className="text-sm font-semibold text-purple-800 mb-2">Optimized with {result.gscKeywordsUsed.length} GSC keywords</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {result.gscKeywordsUsed.slice(0, 10).map((kw, i) => (
+                    <span key={i} className="text-xs bg-white px-2 py-0.5 rounded border border-purple-200 text-purple-700">{kw.query}</span>
+                  ))}
                 </div>
               </div>
             )}
 
-            {/* (rest of review + publish UI unchanged from file 2) */}
+            {/* Stats bar */}
+            <div className="bg-white rounded-lg border p-3 flex items-center gap-4 flex-wrap text-sm">
+              <span className="text-gray-600">{result.searchesUsed} searches</span>
+              <span className="text-gray-600">{result.claudeCalls} Claude calls</span>
+              <span className="text-gray-600">{result.duration}s</span>
+              <span className="bg-blue-100 text-blue-800 px-2 py-0.5 rounded text-xs font-medium">{result.blogType}</span>
+              {highlightedData && <span className="bg-sky-100 text-sky-800 px-2 py-0.5 rounded text-xs font-medium">{highlightedData.changesCount} changes</span>}
+            </div>
+
+            {/* Title + Meta */}
+            <div className="bg-white rounded-lg border p-4 space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Blog Title</label>
+                <input value={blogTitle} onChange={e => setBlogTitle(e.target.value)}
+                  className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0ea5e9]" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Meta Description <span className="text-gray-400 normal-case font-normal">({metaFieldName})</span></label>
+                <textarea value={metaDescription} onChange={e => setMetaDescription(e.target.value)} rows={2}
+                  className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0ea5e9] resize-none" />
+              </div>
+            </div>
+
+            {/* Mode tabs */}
+            <div className="flex items-center gap-2">
+              {[['edit', 'Edit', Eye], ['preview', 'Preview Changes', Search], ['html', 'HTML Source', Code]].map(([mode, label, Icon]) => (
+                <button key={mode} onClick={() => mode === 'html' ? switchToHtmlMode() : setEditMode(mode)}
+                  className={`px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-1.5 transition-colors ${editMode === mode ? 'bg-[#0ea5e9] text-white' : 'bg-white border text-gray-600 hover:bg-gray-50'}`}>
+                  <Icon className="w-4 h-4" />{label}
+                </button>
+              ))}
+              {editMode === 'preview' && (
+                <label className="flex items-center gap-2 ml-4 text-sm text-gray-600 cursor-pointer select-none">
+                  <input type="checkbox" checked={showHighlights} onChange={e => setShowHighlights(e.target.checked)} className="rounded" />
+                  Show highlights
+                </label>
+              )}
+            </div>
+
+            {/* EDITOR */}
+            {editMode === 'edit' && (
+              <div className="bg-white rounded-lg border shadow-sm">
+                {/* Toolbar */}
+                <div className="flex items-center gap-1 p-2 border-b bg-gray-50 rounded-t-lg flex-wrap">
+                  <button onClick={() => execCmd('bold')} className="p-2 rounded hover:bg-gray-200 text-gray-700" title="Bold"><Bold className="w-4 h-4" /></button>
+                  <button onClick={() => execCmd('italic')} className="p-2 rounded hover:bg-gray-200 text-gray-700" title="Italic"><Italic className="w-4 h-4" /></button>
+                  <div className="w-px h-6 bg-gray-300 mx-1" />
+                  
+                  {/* Heading dropdown */}
+                  <div className="relative">
+                    <button onClick={() => setShowHeadingMenu(!showHeadingMenu)} className="px-2 py-1.5 rounded hover:bg-gray-200 text-gray-700 text-sm font-medium flex items-center gap-1">
+                      <Type className="w-4 h-4" />Heading<ChevronDown className="w-3 h-3" />
+                    </button>
+                    {showHeadingMenu && (
+                      <div className="absolute top-full left-0 mt-1 bg-white border rounded-lg shadow-lg z-50 py-1 min-w-[120px]">
+                        {[2, 3, 4].map(l => (
+                          <button key={l} onClick={() => formatHeading(l)} className="block w-full text-left px-3 py-1.5 hover:bg-gray-100 text-sm">
+                            <span className="font-semibold">H{l}</span> <span className="text-gray-400">Heading {l}</span>
+                          </button>
+                        ))}
+                        <button onClick={() => { execCmd('formatBlock', 'p'); setShowHeadingMenu(false); }} className="block w-full text-left px-3 py-1.5 hover:bg-gray-100 text-sm text-gray-600">
+                          Paragraph
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  <div className="w-px h-6 bg-gray-300 mx-1" />
+
+                  <button onClick={() => insertListCmd('bullet')} className="p-2 rounded hover:bg-gray-200 text-gray-700" title="Bullet list"><List className="w-4 h-4" /></button>
+                  <button onClick={() => insertListCmd('number')} className="p-2 rounded hover:bg-gray-200 text-gray-700" title="Numbered list"><ListOrdered className="w-4 h-4" /></button>
+                  <div className="w-px h-6 bg-gray-300 mx-1" />
+
+                  <button onClick={openLinkModal} className="p-2 rounded hover:bg-gray-200 text-gray-700" title="Insert/Edit link"><Link2 className="w-4 h-4" /></button>
+                  <button onClick={openImageModal} className="p-2 rounded hover:bg-gray-200 text-gray-700" title="Insert image"><ImagePlus className="w-4 h-4" /></button>
+                  <div className="w-px h-6 bg-gray-300 mx-1" />
+
+                  <button onClick={() => execCmd('undo')} className="p-2 rounded hover:bg-gray-200 text-gray-700" title="Undo"><Undo2 className="w-4 h-4" /></button>
+                </div>
+
+                {/* Editable area */}
+                <div
+                  ref={editorRef}
+                  className="co-editor"
+                  contentEditable
+                  suppressContentEditableWarning
+                  onInput={syncFromEditor}
+                  onClick={handleEditorClick}
+                  dangerouslySetInnerHTML={{ __html: editedContent }}
+                  style={{ minHeight: 600 }}
+                />
+              </div>
+            )}
+
+            {/* PREVIEW (with change highlights) */}
+            {editMode === 'preview' && (
+              <div className="bg-white rounded-lg border shadow-sm">
+                <div className="co-editor" style={{ minHeight: 400 }}
+                  dangerouslySetInnerHTML={{ __html: showHighlights && highlightedData ? highlightedData.html : editedContent }} />
+              </div>
+            )}
+
+            {/* HTML SOURCE */}
+            {editMode === 'html' && (
+              <div className="space-y-3">
+                <textarea
+                  value={htmlSource}
+                  onChange={e => setHtmlSource(e.target.value)}
+                  className="w-full font-mono text-xs bg-gray-900 text-green-400 border rounded-lg p-4 focus:outline-none focus:ring-2 focus:ring-[#0ea5e9]"
+                  style={{ minHeight: 500, resize: 'vertical', lineHeight: 1.5, tabSize: 2 }}
+                  spellCheck={false}
+                />
+                <button onClick={applyHtmlSource} className="bg-[#0ea5e9] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#0284c7]">
+                  Apply HTML Changes
+                </button>
+              </div>
+            )}
+
+            {/* Action buttons */}
+            <div className="flex items-center gap-3 flex-wrap bg-white rounded-lg border p-4">
+              <button onClick={publishToWebflow} disabled={loading} className="bg-green-600 text-white px-5 py-2.5 rounded-lg font-semibold hover:bg-green-700 disabled:opacity-50 flex items-center gap-2">
+                {loading ? <Loader className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                Publish to Webflow
+              </button>
+              <button onClick={copyHTMLToClipboard} className={`px-5 py-2.5 rounded-lg font-semibold flex items-center gap-2 border ${copied ? 'bg-green-50 border-green-300 text-green-700' : 'bg-white text-gray-700 hover:bg-gray-50'}`}>
+                <Copy className="w-4 h-4" />
+                {copied ? 'Copied!' : 'Copy HTML'}
+              </button>
+              <button onClick={() => { setView('dashboard'); setResult(null); setSelectedBlog(null); setHighlightedData(null); }}
+                className="bg-white text-gray-500 px-4 py-2.5 rounded-lg border hover:bg-gray-50 text-sm">
+                Back to Dashboard
+              </button>
+            </div>
           </div>
         )}
 
+        {/* ── SUCCESS ── */}
         {view === 'success' && (
-          <div className="max-w-2xl mx-auto text-center py-12">
-            <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4"><CheckCircle className="w-12 h-12 text-green-600" /></div>
-            <h2 className="text-3xl font-bold text-[#0f172a] mb-2">Published!</h2>
-            <p className="text-gray-600 mb-8">Content updated on Webflow</p>
-            <button onClick={() => { setView('dashboard'); setResult(null); setSelectedBlog(null); }} className="bg-[#0ea5e9] text-white px-8 py-4 rounded-lg font-semibold hover:bg-[#0284c7] shadow-lg">← Back</button>
+          <div className="max-w-md mx-auto text-center py-16">
+            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4"><CheckCircle className="w-10 h-10 text-green-600" /></div>
+            <h2 className="text-2xl font-bold mb-2">Published!</h2>
+            <p className="text-gray-500 mb-6">Content updated on Webflow</p>
+            <button onClick={() => { setView('dashboard'); setResult(null); setSelectedBlog(null); setHighlightedData(null); }}
+              className="bg-[#0ea5e9] text-white px-6 py-3 rounded-lg font-semibold hover:bg-[#0284c7]">Back to Dashboard</button>
           </div>
         )}
       </div>
 
-      {/* GSC Upload Modal */}
-      {showGscModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999]" onClick={() => setShowGscModal(false)}>
-          <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-xl font-bold mb-4">📊 Upload GSC Data</h3>
-            <p className="text-sm text-gray-600 mb-4">
-              Upload your XLSX file exported from Google Search Console (must include both Queries and Pages sheets).
-            </p>
-            {status.message && status.type !== 'success' && (
-              <div className={`p-3 rounded-lg mb-4 ${status.type === 'error' ? 'bg-red-50 text-red-800' : 'bg-blue-50 text-blue-800'}`}>
-                {status.message}
-              </div>
-            )}
-            {gscData && (
-              <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded">
-                <p className="text-sm text-green-800 font-semibold">
-                  ✅ {gscData.totalMatches || gscData.blogsCount} blogs with keywords
-                </p>
-              </div>
-            )}
-            <input type="file" accept=".xlsx,.xls" onChange={handleGscUpload} disabled={gscUploading} className="w-full bg-gray-50 border rounded px-4 py-3 mb-4 text-sm" />
-            <div className="flex gap-3">
-              <button onClick={() => setShowGscModal(false)} className="flex-1 bg-gray-100 py-3 rounded font-semibold hover:bg-gray-200">
-                {gscData ? 'Done' : 'Cancel'}
-              </button>
+      {/* ── MODALS ── */}
+      {/* Link Modal */}
+      {showLinkModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999]" onClick={() => setShowLinkModal(false)}>
+          <div className="bg-white rounded-xl p-6 max-w-sm w-full mx-4 space-y-3" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold">{editingLink ? 'Edit Link' : 'Insert Link'}</h3>
+            <div>
+              <label className="block text-xs font-semibold mb-1">URL</label>
+              <input value={linkUrl} onChange={e => setLinkUrl(e.target.value)} placeholder="https://..." className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0ea5e9]" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold mb-1">Text (optional)</label>
+              <input value={linkText} onChange={e => setLinkText(e.target.value)} placeholder="Link text" className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0ea5e9]" />
+            </div>
+            <div className="flex gap-2">
+              <button onClick={applyLink} className="flex-1 bg-[#0ea5e9] text-white py-2 rounded-lg font-semibold text-sm hover:bg-[#0284c7]">Apply</button>
+              <button onClick={() => setShowLinkModal(false)} className="flex-1 bg-gray-100 py-2 rounded-lg text-sm hover:bg-gray-200">Cancel</button>
             </div>
           </div>
         </div>
       )}
 
-      <footer className="bg-[#0f172a] text-white mt-20">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-[#0ea5e9] rounded-lg flex items-center justify-center">
-                <Sparkles className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <div className="text-xl font-bold">ContentOps</div>
-                <div className="text-gray-400 text-xs">by SalesRobot</div>
-              </div>
+      {/* Image Modal */}
+      {showImageModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999]" onClick={() => setShowImageModal(false)}>
+          <div className="bg-white rounded-xl p-6 max-w-sm w-full mx-4 space-y-3" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold">Insert Image</h3>
+            <div>
+              <label className="block text-xs font-semibold mb-1">Image URL</label>
+              <input value={imageUrl} onChange={e => setImageUrl(e.target.value)} placeholder="https://..." className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0ea5e9]" />
             </div>
-            <div className="text-center md:text-right">
-              <p className="text-gray-400 text-sm">© 2025 ContentOps. All rights reserved.</p>
-              <p className="text-gray-500 text-xs mt-1">Powered by Brave Search + Claude AI + GSC</p>
+            <div className="flex gap-2">
+              <button onClick={applyImage} className="flex-1 bg-[#0ea5e9] text-white py-2 rounded-lg font-semibold text-sm hover:bg-[#0284c7]">Insert</button>
+              <button onClick={() => setShowImageModal(false)} className="flex-1 bg-gray-100 py-2 rounded-lg text-sm hover:bg-gray-200">Cancel</button>
             </div>
           </div>
         </div>
-      </footer>
+      )}
+
+      {/* Image Alt Modal */}
+      {imageAltModal.show && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999]" onClick={() => setImageAltModal({ show: false, src: '', currentAlt: '', index: -1 })}>
+          <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4 space-y-3" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold">Edit Image</h3>
+            <img src={imageAltModal.src} alt="" className="w-full max-h-48 object-contain rounded-lg bg-gray-100" />
+            <div>
+              <label className="block text-xs font-semibold mb-1">Alt Text</label>
+              <input value={imageAltModal.currentAlt} onChange={e => setImageAltModal({ ...imageAltModal, currentAlt: e.target.value })}
+                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0ea5e9]" />
+            </div>
+            <div className="flex gap-2">
+              <button onClick={updateImageAlt} className="flex-1 bg-[#0ea5e9] text-white py-2 rounded-lg font-semibold text-sm">Save Alt</button>
+              <button onClick={deleteImage} className="flex-1 bg-red-500 text-white py-2 rounded-lg font-semibold text-sm">Delete</button>
+              <button onClick={() => setImageAltModal({ show: false, src: '', currentAlt: '', index: -1 })} className="flex-1 bg-gray-100 py-2 rounded-lg text-sm">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* GSC Modal */}
+      {showGscModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999]" onClick={() => setShowGscModal(false)}>
+          <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4 space-y-3" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold">Upload GSC Data</h3>
+            <p className="text-sm text-gray-600">Upload XLSX from Google Search Console (needs Queries + Pages sheets).</p>
+            {gscData && (
+              <div className="p-2 bg-green-50 border border-green-200 rounded text-sm text-green-800 font-medium">
+                {gscData.totalMatches} blogs with keywords loaded
+              </div>
+            )}
+            <input type="file" accept=".xlsx,.xls" onChange={handleGscUpload} disabled={gscUploading} className="w-full bg-gray-50 border rounded px-3 py-2 text-sm" />
+            <button onClick={() => setShowGscModal(false)} className="w-full bg-gray-100 py-2 rounded-lg font-semibold text-sm hover:bg-gray-200">
+              {gscData ? 'Done' : 'Cancel'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
