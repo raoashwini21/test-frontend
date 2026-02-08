@@ -179,13 +179,14 @@ export default function ContentOps() {
   const [linkUrl, setLinkUrl] = useState('');
   const [linkText, setLinkText] = useState('');
   const [editingLink, setEditingLink] = useState(null);
-  const [imageAltModal, setImageAltModal] = useState({ show: false, src: '', currentAlt: '', index: -1, isNewUpload: false, file: null });
+  const [showImageModal, setShowImageModal] = useState(false);
+  const [imageUrl, setImageUrl] = useState('');
+  const [imageAltModal, setImageAltModal] = useState({ show: false, src: '', currentAlt: '', index: -1 });
   const [editMode, setEditMode] = useState('edit'); // 'edit' | 'preview' | 'html'
   const [showHighlights, setShowHighlights] = useState(true);
   const [showHeadingMenu, setShowHeadingMenu] = useState(false);
   const [htmlSource, setHtmlSource] = useState('');
   const [copied, setCopied] = useState(false);
-  const [siteId, setSiteId] = useState(null);
 
   const editorRef = useRef(null);
   const savedRange = useRef(null);
@@ -269,7 +270,7 @@ export default function ContentOps() {
     // Click on image
     if (e.target.tagName === 'IMG') {
       const imgs = Array.from(editorRef.current.querySelectorAll('img'));
-      setImageAltModal({ show: true, src: e.target.src, currentAlt: e.target.alt || '', index: imgs.indexOf(e.target), isNewUpload: false, file: null });
+      setImageAltModal({ show: true, src: e.target.src, currentAlt: e.target.alt || '', index: imgs.indexOf(e.target) });
       return;
     }
     // Click on link
@@ -325,134 +326,26 @@ export default function ContentOps() {
     setShowLinkModal(false); setLinkUrl(''); setLinkText(''); setEditingLink(null);
   };
 
-  // ── Image upload handler ──────────────────────
-  const handleImageUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    
-    // Validate file type
-    if (!file.type.startsWith('image/')) {
-      setStatus({ type: 'error', message: 'Please select an image file' });
-      return;
-    }
-    
-    // Validate file size (5MB limit)
-    if (file.size > 5 * 1024 * 1024) {
-      setStatus({ type: 'error', message: 'Image too large (max 5MB)' });
-      return;
-    }
-    
-    saveRange(); // Save cursor position
-    
-    // Create preview URL
-    const previewUrl = URL.createObjectURL(file);
-    
-    // Show alt text modal immediately
-    setImageAltModal({ 
-      show: true, 
-      src: previewUrl, 
-      currentAlt: '', 
-      index: -1,
-      isNewUpload: true,
-      file: file
-    });
-    
-    // Reset input
-    e.target.value = '';
-  };
+  const openImageModal = () => { saveRange(); setImageUrl(''); setShowImageModal(true); };
 
-  const insertUploadedImage = async () => {
-    if (!imageAltModal.file || !imageAltModal.currentAlt.trim()) {
-      setStatus({ type: 'error', message: 'Please add alt text for accessibility' });
-      return;
-    }
-    
-    if (!siteId) {
-      setStatus({ type: 'error', message: 'Site ID not available. Please reload blogs first.' });
-      return;
-    }
-    
-    setStatus({ type: 'info', message: 'Uploading image to Webflow...' });
-    
-    try {
-      // Convert to base64
-      const base64 = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = reject;
-        reader.readAsDataURL(imageAltModal.file);
-      });
-      
-      // Upload to backend
-      const response = await fetch(`${BACKEND_URL}/api/upload-image`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${config.webflowKey}`
-        },
-        body: JSON.stringify({ 
-          image: base64,
-          filename: imageAltModal.file.name,
-          siteId: siteId
-        })
-      });
-      
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Upload failed');
-      }
-      
-      const data = await response.json();
-      
-      // Insert image into editor
-      restoreRange();
-      const img = document.createElement('img');
-      img.src = data.url;
-      img.alt = imageAltModal.currentAlt.trim();
-      img.loading = 'lazy';
-      img.style.maxWidth = '100%';
-      img.style.height = 'auto';
-      img.style.display = 'block';
-      img.style.margin = '1rem 0';
-      img.style.borderRadius = '6px';
-      
-      if (savedRange.current) {
-        savedRange.current.insertNode(img);
-        savedRange.current.setStartAfter(img);
-      } else if (editorRef.current) {
-        editorRef.current.appendChild(img);
-      }
-      
-      syncFromEditor();
-      
-      // Clean up
-      URL.revokeObjectURL(imageAltModal.src);
-      setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isNewUpload: false, file: null });
-      setStatus({ type: 'success', message: 'Image uploaded to Webflow!' });
-      setTimeout(() => setStatus({ type: '', message: '' }), 2000);
-      
-    } catch (error) {
-      console.error('Upload error:', error);
-      setStatus({ type: 'error', message: error.message });
-      setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isNewUpload: false, file: null });
-    }
+  const applyImage = () => {
+    if (!imageUrl) return;
+    restoreRange();
+    const img = document.createElement('img');
+    img.src = imageUrl; img.alt = 'Image'; img.style.maxWidth = '100%'; img.style.height = 'auto'; img.style.display = 'block'; img.style.margin = '1rem 0';
+    if (savedRange.current) { savedRange.current.insertNode(img); savedRange.current.setStartAfter(img); }
+    else if (editorRef.current) editorRef.current.appendChild(img);
+    syncFromEditor();
+    setShowImageModal(false); setImageUrl('');
   };
 
   const updateImageAlt = () => {
-    // For new uploads
-    if (imageAltModal.isNewUpload) {
-      insertUploadedImage();
-      return;
-    }
-    
-    // For existing images
     const imgs = editorRef.current?.querySelectorAll('img');
     if (imgs && imgs[imageAltModal.index]) {
       imgs[imageAltModal.index].alt = imageAltModal.currentAlt;
       syncFromEditor();
     }
-    
-    setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isNewUpload: false, file: null });
+    setImageAltModal({ show: false, src: '', currentAlt: '', index: -1 });
   };
 
   const deleteImage = () => {
@@ -464,7 +357,7 @@ export default function ContentOps() {
       (fig || img).remove();
       syncFromEditor();
     }
-    setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isNewUpload: false, file: null });
+    setImageAltModal({ show: false, src: '', currentAlt: '', index: -1 });
   };
 
   // ── HTML Source editing ───────────────────────
@@ -601,13 +494,6 @@ export default function ContentOps() {
       });
       if (!r.ok) throw new Error(`Error ${r.status}`);
       const d = await r.json();
-      
-      // Extract site ID
-      if (d.items?.[0]?.siteId) {
-        setSiteId(d.items[0].siteId);
-        console.log('Site ID:', d.items[0].siteId);
-      }
-      
       const seen = new Set(); const unique = (d.items || []).filter(i => { if (seen.has(i.id)) return false; seen.add(i.id); return true; });
       setBlogs(unique); setBlogCacheData(unique); setCacheTimestamp(Date.now());
       setStatus({ type: 'success', message: `Loaded ${unique.length} blogs` });
@@ -643,13 +529,6 @@ export default function ContentOps() {
       });
       if (!r.ok) throw new Error(`Error ${r.status}`);
       const d = await r.json();
-      
-      // Extract site ID
-      if (d.items?.[0]?.siteId) {
-        setSiteId(d.items[0].siteId);
-        console.log('Site ID:', d.items[0].siteId);
-      }
-      
       const seen = new Set(); const unique = (d.items || []).filter(i => { if (seen.has(i.id)) return false; seen.add(i.id); return true; });
       setBlogs(unique); setBlogCacheData(unique); setCacheTimestamp(Date.now());
       setStatus({ type: 'success', message: `Loaded ${unique.length} blogs` });
@@ -659,87 +538,100 @@ export default function ContentOps() {
   };
 
   // ── Smart Check (analyze) ─────────────────────
-  const analyzeBlog = async (blog) => {
-    setSelectedBlog(blog);
-    setLoading(true);
-    setHighlightedData(null);
-    setResult(null);
-
-    const title = blog.fieldData.name;
-    setBlogTitle(title);
-
-    // Detect meta field
-    for (const f of ['excerpt','post-summary','summary','meta-description','description','seo-description']) {
-      if (blog.fieldData[f]) { setMetaDescription(blog.fieldData[f]); setMetaFieldName(f); break; }
+const analyzeBlog = async (blog) => {
+  setSelectedBlog(blog);
+  setLoading(true);
+  setHighlightedData(null);
+  setResult(null);
+  
+  const title = blog.fieldData.name;
+  setBlogTitle(title);
+  
+  for (const f of ['excerpt','post-summary','summary','meta-description','description','seo-description']) {
+    if (blog.fieldData[f]) { 
+      setMetaDescription(blog.fieldData[f]); 
+      setMetaFieldName(f); 
+      break; 
     }
-
-    const gscInfo = getGscKeywordsForBlog(blog);
-    const hasGsc = gscInfo?.hasKeywords && gscInfo.keywords.length > 0;
-
-    setStatus({ type: 'info', message: hasGsc ? `Optimizing with ${gscInfo.keywords.length} GSC keywords + web search...` : 'Smart analysis in progress...' });
-
-    const original = blog.fieldData['post-body'] || '';
-
-    try {
-      const r = await fetch(`${BACKEND_URL}/api/smartcheck`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          blogContent: original,
-          title,
-          slug: blog.fieldData.slug || blog.fieldData.name?.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-          anthropicKey: config.anthropicKey,
-          braveKey: config.braveKey,
-          gscKeywords: hasGsc ? gscInfo.keywords.map(k => ({
-            keyword: k.query,
-            position: k.position,
-            clicks: k.clicks
-          })) : null
-        })
-      });
-
-      const contentType = r.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        const text = await r.text();
-        console.error('Server returned:', text);
-        throw new Error('Server error - check backend logs');
-      }
-
-      if (!r.ok) { 
-        const e = await r.json(); 
-        throw new Error(e.error || 'Analysis failed'); 
-      }
-      
-      const data = await r.json();
-
-      let updated = (data.updatedContent || original).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-      const highlighted = createHighlightedHTML(original, updated);
-      setHighlightedData(highlighted);
-
-      setResult({
-        searchesUsed: data.stats?.searches || 0,
-        claudeCalls: 2,
-        sectionsUpdated: 0,
-        content: updated,
-        originalContent: original,
-        duration: parseFloat(data.stats?.elapsed) || 0,
-        blogType: detectBlogType(title),
-        gscOptimized: hasGsc,
-        gscKeywordsUsed: hasGsc ? gscInfo.keywords : null
-      });
-
-      setEditedContent(updated);
-      setShowHighlights(true);
-      setEditMode('edit');
-      setStatus({ type: 'success', message: hasGsc ? `Optimized with ${gscInfo.keywords.length} keywords!` : 'Analysis complete!' });
-      setView('review');
-    } catch (e) { 
-      console.error('Analysis error:', e);
-      setStatus({ type: 'error', message: e.message }); 
-    } finally { 
-      setLoading(false); 
+  }
+  
+  const gscInfo = getGscKeywordsForBlog(blog);
+  const hasGsc = gscInfo?.hasKeywords && gscInfo.keywords.length > 0;
+  
+  setStatus({ 
+    type: 'info', 
+    message: hasGsc 
+      ? `Optimizing with ${gscInfo.keywords.length} GSC keywords + web search...` 
+      : 'Smart analysis in progress...' 
+  });
+  
+  const original = blog.fieldData['post-body'] || '';
+  
+  try {
+    const r = await fetch(`${BACKEND_URL}/api/smartcheck`, {  // ✅ Fixed: added opening parenthesis
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        blogContent: original,
+        title,
+        slug: blog.fieldData.slug || blog.fieldData.name?.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+        anthropicKey: config.anthropicKey,
+        braveKey: config.braveKey,
+        gscKeywords: hasGsc ? gscInfo.keywords.map(k => ({
+          keyword: k.query,
+          position: k.position,
+          clicks: k.clicks
+        })) : null
+      })
+    });
+    
+    const contentType = r.headers.get('content-type');
+    if (!contentType || !contentType.includes('application/json')) {
+      const text = await r.text();
+      console.error('Server returned:', text);
+      throw new Error('Server error - check backend logs');
     }
-  };
+    
+    if (!r.ok) { 
+      const e = await r.json(); 
+      throw new Error(e.error || 'Analysis failed'); 
+    }
+    
+    const data = await r.json();
+    
+    let updated = (data.updatedContent || original).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    const highlighted = createHighlightedHTML(original, updated);
+    setHighlightedData(highlighted);
+    
+    setResult({
+      searchesUsed: data.stats?.searches || 0,
+      claudeCalls: 2,
+      sectionsUpdated: 0,
+      content: updated,
+      originalContent: original,
+      duration: parseFloat(data.stats?.elapsed) || 0,
+      blogType: detectBlogType(title),
+      gscOptimized: hasGsc,
+      gscKeywordsUsed: hasGsc ? gscInfo.keywords : null
+    });
+    
+    setEditedContent(updated);
+    setShowHighlights(true);
+    setEditMode('edit');
+    setStatus({ 
+      type: 'success', 
+      message: hasGsc 
+        ? `Optimized with ${gscInfo.keywords.length} keywords!` 
+        : 'Analysis complete!' 
+    });
+    setView('review');
+  } catch (e) { 
+    console.error('Analysis error:', e);
+    setStatus({ type: 'error', message: e.message }); 
+  } finally { 
+    setLoading(false); 
+  }
+};
 
   // ── Publish ───────────────────────────────────
   const publishToWebflow = async () => {
@@ -780,11 +672,12 @@ export default function ContentOps() {
   // ── Load content into editor when switching modes
   useEffect(() => {
     if (editMode === 'edit' && editorRef.current && editedContent) {
+      // Only set if different to avoid cursor jump
       if (editorRef.current.innerHTML !== editedContent) {
         editorRef.current.innerHTML = editedContent;
       }
     }
-  }, [editMode, editedContent]);
+  }, [editMode]);
 
   // ════════════════════════════════════════════════
   // RENDER
@@ -992,23 +885,7 @@ export default function ContentOps() {
                   <div className="w-px h-6 bg-gray-300 mx-1" />
 
                   <button onClick={openLinkModal} className="p-2 rounded hover:bg-gray-200 text-gray-700" title="Insert/Edit link"><Link2 className="w-4 h-4" /></button>
-                  
-                  {/* Image upload button */}
-                  <input 
-                    type="file" 
-                    accept="image/*" 
-                    id="image-upload-input" 
-                    className="hidden" 
-                    onChange={handleImageUpload}
-                  />
-                  <label 
-                    htmlFor="image-upload-input" 
-                    className="p-2 rounded hover:bg-gray-200 text-gray-700 cursor-pointer" 
-                    title="Upload image"
-                  >
-                    <ImagePlus className="w-4 h-4" />
-                  </label>
-                  
+                  <button onClick={openImageModal} className="p-2 rounded hover:bg-gray-200 text-gray-700" title="Insert image"><ImagePlus className="w-4 h-4" /></button>
                   <div className="w-px h-6 bg-gray-300 mx-1" />
 
                   <button onClick={() => execCmd('undo')} className="p-2 rounded hover:bg-gray-200 text-gray-700" title="Undo"><Undo2 className="w-4 h-4" /></button>
@@ -1104,65 +981,38 @@ export default function ContentOps() {
         </div>
       )}
 
+      {/* Image Modal */}
+      {showImageModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999]" onClick={() => setShowImageModal(false)}>
+          <div className="bg-white rounded-xl p-6 max-w-sm w-full mx-4 space-y-3" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold">Insert Image</h3>
+            <div>
+              <label className="block text-xs font-semibold mb-1">Image URL</label>
+              <input value={imageUrl} onChange={e => setImageUrl(e.target.value)} placeholder="https://..." className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0ea5e9]" />
+            </div>
+            <div className="flex gap-2">
+              <button onClick={applyImage} className="flex-1 bg-[#0ea5e9] text-white py-2 rounded-lg font-semibold text-sm hover:bg-[#0284c7]">Insert</button>
+              <button onClick={() => setShowImageModal(false)} className="flex-1 bg-gray-100 py-2 rounded-lg text-sm hover:bg-gray-200">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Image Alt Modal */}
       {imageAltModal.show && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999]" 
-             onClick={() => {
-               if (imageAltModal.isNewUpload && imageAltModal.src) {
-                 URL.revokeObjectURL(imageAltModal.src);
-               }
-               setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isNewUpload: false, file: null });
-             }}>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999]" onClick={() => setImageAltModal({ show: false, src: '', currentAlt: '', index: -1 })}>
           <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4 space-y-3" onClick={e => e.stopPropagation()}>
-            <h3 className="text-lg font-bold">
-              {imageAltModal.isNewUpload ? 'Add Alt Text for Image' : 'Edit Image'}
-            </h3>
-            
+            <h3 className="text-lg font-bold">Edit Image</h3>
             <img src={imageAltModal.src} alt="" className="w-full max-h-48 object-contain rounded-lg bg-gray-100" />
-            
             <div>
-              <label className="block text-xs font-semibold mb-1 text-gray-700">
-                Alt Text <span className="text-red-500">*</span>
-                <span className="font-normal text-gray-500 ml-1">(Required for SEO & Accessibility)</span>
-              </label>
-              <input 
-                value={imageAltModal.currentAlt} 
-                onChange={e => setImageAltModal({ ...imageAltModal, currentAlt: e.target.value })}
-                placeholder="Describe what's in the image..."
-                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0ea5e9]" 
-                autoFocus
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Good: "Person typing on laptop at cafe" | Bad: "image123.jpg"
-              </p>
+              <label className="block text-xs font-semibold mb-1">Alt Text</label>
+              <input value={imageAltModal.currentAlt} onChange={e => setImageAltModal({ ...imageAltModal, currentAlt: e.target.value })}
+                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0ea5e9]" />
             </div>
-            
             <div className="flex gap-2">
-              <button 
-                onClick={updateImageAlt} 
-                disabled={imageAltModal.isNewUpload && !imageAltModal.currentAlt.trim()}
-                className="flex-1 bg-[#0ea5e9] text-white py-2 rounded-lg font-semibold text-sm hover:bg-[#0284c7] disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {imageAltModal.isNewUpload ? 'Upload & Insert' : 'Save Alt'}
-              </button>
-              
-              {!imageAltModal.isNewUpload && (
-                <button onClick={deleteImage} className="flex-1 bg-red-500 text-white py-2 rounded-lg font-semibold text-sm hover:bg-red-600">
-                  Delete
-                </button>
-              )}
-              
-              <button 
-                onClick={() => {
-                  if (imageAltModal.isNewUpload && imageAltModal.src) {
-                    URL.revokeObjectURL(imageAltModal.src);
-                  }
-                  setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isNewUpload: false, file: null });
-                }} 
-                className="flex-1 bg-gray-100 py-2 rounded-lg text-sm hover:bg-gray-200"
-              >
-                Cancel
-              </button>
+              <button onClick={updateImageAlt} className="flex-1 bg-[#0ea5e9] text-white py-2 rounded-lg font-semibold text-sm">Save Alt</button>
+              <button onClick={deleteImage} className="flex-1 bg-red-500 text-white py-2 rounded-lg font-semibold text-sm">Delete</button>
+              <button onClick={() => setImageAltModal({ show: false, src: '', currentAlt: '', index: -1 })} className="flex-1 bg-gray-100 py-2 rounded-lg text-sm">Cancel</button>
             </div>
           </div>
         </div>
