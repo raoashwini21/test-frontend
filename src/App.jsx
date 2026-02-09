@@ -179,12 +179,13 @@ export default function ContentOps() {
   const [linkUrl, setLinkUrl] = useState('');
   const [linkText, setLinkText] = useState('');
   const [editingLink, setEditingLink] = useState(null);
-  const [imageAltModal, setImageAltModal] = useState({ show: false, src: '', currentAlt: '', index: -1, isUpload: false, file: null });
+  const [imageAltModal, setImageAltModal] = useState({ show: false, src: '', currentAlt: '', index: -1, isUpload: false, file: null, error: '' });
   const [editMode, setEditMode] = useState('edit');
   const [showHighlights, setShowHighlights] = useState(true);
   const [showHeadingMenu, setShowHeadingMenu] = useState(false);
   const [htmlSource, setHtmlSource] = useState('');
   const [copied, setCopied] = useState(false);
+  const [detectedSiteId, setDetectedSiteId] = useState(null);
 
   const editorRef = useRef(null);
   const savedRangeRef = useRef(null);
@@ -232,12 +233,36 @@ export default function ContentOps() {
   };
 
   // This is the ONLY function that reads from editor → state
-  // It runs on every keystroke via onInput
+  // DEBOUNCED: We store live content in a ref (no re-render) and only
+  // flush to state every 500ms. This prevents React from re-rendering
+  // on every keystroke, which can cause scroll/layout issues.
+  const liveContentRef = useRef('');
+  const syncTimerRef = useRef(null);
+
   const syncFromEditor = useCallback(() => {
     if (editorRef.current) {
-      setEditedContent(editorRef.current.innerHTML);
+      liveContentRef.current = editorRef.current.innerHTML;
+
+      // Debounce the state update
+      if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+      syncTimerRef.current = setTimeout(() => {
+        setEditedContent(liveContentRef.current);
+      }, 500);
     }
   }, []);
+
+  // Force-flush: reads latest editor content into state immediately
+  // Call this before publish, copy, or mode switch
+  const flushEditorContent = useCallback(() => {
+    if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+    if (editorRef.current) {
+      const html = editorRef.current.innerHTML;
+      liveContentRef.current = html;
+      setEditedContent(html);
+      return html;
+    }
+    return liveContentRef.current || editedContent;
+  }, [editedContent]);
 
   // ── Formatting ────────────────────────────────
   const execCmd = (cmd, val) => {
@@ -280,7 +305,7 @@ export default function ContentOps() {
   const handleEditorClick = (e) => {
     if (e.target.tagName === 'IMG') {
       const imgs = Array.from(editorRef.current.querySelectorAll('img'));
-      setImageAltModal({ show: true, src: e.target.src, currentAlt: e.target.alt || '', index: imgs.indexOf(e.target), isUpload: false, file: null });
+      setImageAltModal({ show: true, src: e.target.src, currentAlt: e.target.alt || '', index: imgs.indexOf(e.target), isUpload: false, file: null, error: '' });
       return;
     }
     let el = e.target;
@@ -345,18 +370,21 @@ export default function ContentOps() {
 
     saveRange();
     const preview = URL.createObjectURL(file);
-    setImageAltModal({ show: true, src: preview, currentAlt: '', index: -1, isUpload: true, file });
+    setImageAltModal({ show: true, src: preview, currentAlt: '', index: -1, isUpload: true, file, error: '' });
     e.target.value = '';
   };
 
   const insertUploadedImage = async () => {
     if (!imageAltModal.file || !imageAltModal.currentAlt.trim()) {
-      setStatus({ type: 'error', message: 'Alt text required for SEO' }); return;
-    }
-    if (!config.siteId) {
-      setStatus({ type: 'error', message: 'Site ID missing. Add it in Settings.' }); return;
+      setImageAltModal(m => ({ ...m, error: 'Alt text required for accessibility & SEO' })); return;
     }
 
+    const sid = detectedSiteId || config.siteId;
+    if (!sid) {
+      setImageAltModal(m => ({ ...m, error: 'Site ID not found. Load blogs first, or add Site ID in Settings.' })); return;
+    }
+
+    setImageAltModal(m => ({ ...m, error: '' }));
     setStatus({ type: 'info', message: 'Uploading to Webflow...' });
     try {
       const b64 = await new Promise((res, rej) => {
@@ -369,7 +397,7 @@ export default function ContentOps() {
       const resp = await fetch(`${BACKEND_URL}/api/upload-image`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.webflowKey}` },
-        body: JSON.stringify({ image: b64, filename: imageAltModal.file.name, siteId: config.siteId })
+        body: JSON.stringify({ image: b64, filename: imageAltModal.file.name, siteId: sid })
       });
 
       if (!resp.ok) { const e = await resp.json(); throw new Error(e.error || 'Upload failed'); }
@@ -392,12 +420,12 @@ export default function ContentOps() {
       syncFromEditor();
 
       URL.revokeObjectURL(imageAltModal.src);
-      setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isUpload: false, file: null });
+      setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isUpload: false, file: null, error: '' });
       setStatus({ type: 'success', message: 'Image uploaded!' });
       setTimeout(() => setStatus({ type: '', message: '' }), 2000);
     } catch (err) {
-      setStatus({ type: 'error', message: err.message });
-      setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isUpload: false, file: null });
+      setImageAltModal(m => ({ ...m, error: err.message }));
+      setStatus({ type: '', message: '' });
     }
   };
 
@@ -408,7 +436,7 @@ export default function ContentOps() {
       imgs[imageAltModal.index].alt = imageAltModal.currentAlt;
       syncFromEditor();
     }
-    setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isUpload: false, file: null });
+    setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isUpload: false, file: null, error: '' });
   };
 
   const deleteImage = () => {
@@ -419,11 +447,11 @@ export default function ContentOps() {
       (img.closest('figure') || img).remove();
       syncFromEditor();
     }
-    setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isUpload: false, file: null });
+    setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isUpload: false, file: null, error: '' });
   };
 
   // ── HTML source mode ──────────────────────────
-  const switchToHtmlMode = () => { setHtmlSource(editedContent); setEditMode('html'); };
+  const switchToHtmlMode = () => { const html = flushEditorContent(); setHtmlSource(html); setEditMode('html'); };
 
   const applyHtmlSource = () => {
     setEditedContent(htmlSource);
@@ -433,7 +461,8 @@ export default function ContentOps() {
 
   // ── Copy HTML ─────────────────────────────────
   const copyHTMLToClipboard = () => {
-    const cleaned = sanitizeListHTML(editedContent);
+    const html = flushEditorContent();
+    const cleaned = sanitizeListHTML(html);
     navigator.clipboard.writeText(cleaned).then(() => {
       setCopied(true);
       setStatus({ type: 'success', message: 'HTML copied!' });
@@ -562,6 +591,7 @@ export default function ContentOps() {
       });
       if (!r.ok) throw new Error(`Error ${r.status}`);
       const d = await r.json();
+      if (d.siteId) setDetectedSiteId(d.siteId);
       const seen = new Set();
       const unique = (d.items || []).filter(i => { if (seen.has(i.id)) return false; seen.add(i.id); return true; });
       setBlogs(unique); setBlogCacheData(unique); setCacheTimestamp(Date.now());
@@ -588,6 +618,7 @@ export default function ContentOps() {
       });
       if (!r.ok) { const e = await r.json(); throw new Error(e.error || `Error ${r.status}`); }
       const d = await r.json();
+      if (d.siteId) setDetectedSiteId(d.siteId);
       const seen = new Set();
       const unique = (d.items || []).filter(i => { if (seen.has(i.id)) return false; seen.add(i.id); return true; });
       setBlogs(unique); setBlogCacheData(unique); setCacheTimestamp(Date.now());
@@ -670,14 +701,16 @@ export default function ContentOps() {
   const publishToWebflow = async () => {
     if (!result || !selectedBlog) return;
     if (!blogTitle.trim()) { setStatus({ type: 'error', message: 'Title empty' }); return; }
-    if (!editedContent.trim()) { setStatus({ type: 'error', message: 'Content empty' }); return; }
+
+    // Flush latest editor content to state before publish
+    const latestContent = flushEditorContent();
+    if (!latestContent.trim()) { setStatus({ type: 'error', message: 'Content empty' }); return; }
 
     setLoading(true);
     setStatus({ type: 'info', message: 'Publishing...' });
 
     // sanitizeListHTML is the ONLY transformation we apply before publish
-    // It only fixes list structure - never touches other HTML
-    const sanitized = sanitizeListHTML(editedContent);
+    const sanitized = sanitizeListHTML(latestContent);
     const fieldData = { name: blogTitle.trim(), 'post-body': sanitized };
     if (metaDescription.trim()) fieldData[metaFieldName] = metaDescription.trim();
 
@@ -776,7 +809,8 @@ export default function ContentOps() {
                   </div>
                 ))}
                 <p className="text-xs text-gray-400">
-                  Site ID is optional — only needed for uploading images from your device. Find it in Webflow &rarr; Site Settings &rarr; General.
+                  Site ID auto-detects when you load blogs. Only enter manually if auto-detection fails.
+                  {detectedSiteId && <span className="text-green-600 font-medium ml-1">Auto-detected: {detectedSiteId}</span>}
                 </p>
                 <button onClick={saveConfig} disabled={loading} className="w-full bg-[#0ea5e9] text-white py-3 rounded-lg font-semibold hover:bg-[#0284c7] disabled:opacity-50">
                   {loading ? 'Saving...' : 'Save & Connect'}
@@ -875,7 +909,10 @@ export default function ContentOps() {
             {/* Mode tabs */}
             <div className="flex items-center gap-2">
               {[['edit', 'Edit', Eye], ['preview', 'Preview Changes', Search], ['html', 'HTML Source', Code]].map(([mode, label, Icon]) => (
-                <button key={mode} onClick={() => mode === 'html' ? switchToHtmlMode() : setEditMode(mode)}
+                <button key={mode} onClick={() => {
+                    if (mode === 'html') { switchToHtmlMode(); }
+                    else { if (editMode === 'edit') flushEditorContent(); setEditMode(mode); }
+                  }}
                   className={`px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-1.5 transition-colors ${editMode === mode ? 'bg-[#0ea5e9] text-white' : 'bg-white border text-gray-600 hover:bg-gray-50'}`}>
                   <Icon className="w-4 h-4" />{label}
                 </button>
@@ -1017,22 +1054,25 @@ export default function ContentOps() {
 
       {imageAltModal.show && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999]"
-          onClick={() => { if (imageAltModal.isUpload && imageAltModal.src) URL.revokeObjectURL(imageAltModal.src); setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isUpload: false, file: null }); }}>
+          onClick={() => { if (imageAltModal.isUpload && imageAltModal.src) URL.revokeObjectURL(imageAltModal.src); setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isUpload: false, file: null, error: '' }); }}>
           <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4 space-y-3" onClick={e => e.stopPropagation()}>
             <h3 className="text-lg font-bold">{imageAltModal.isUpload ? 'Add Alt Text' : 'Edit Image'}</h3>
             <img src={imageAltModal.src} alt="" className="w-full max-h-48 object-contain rounded-lg bg-gray-100" />
             <div>
               <label className="block text-xs font-semibold mb-1">Alt Text {imageAltModal.isUpload && <span className="text-red-500">*</span>}</label>
-              <input value={imageAltModal.currentAlt} onChange={e => setImageAltModal({...imageAltModal, currentAlt: e.target.value})}
+              <input value={imageAltModal.currentAlt} onChange={e => setImageAltModal({...imageAltModal, currentAlt: e.target.value, error: ''})}
                 placeholder="Describe what's in the image..." className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0ea5e9]" autoFocus />
             </div>
+            {imageAltModal.error && (
+              <div className="p-2.5 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{imageAltModal.error}</div>
+            )}
             <div className="flex gap-2">
               <button onClick={updateImageAlt} disabled={imageAltModal.isUpload && !imageAltModal.currentAlt.trim()}
                 className="flex-1 bg-[#0ea5e9] text-white py-2 rounded-lg font-semibold text-sm disabled:opacity-50">
                 {imageAltModal.isUpload ? 'Upload & Insert' : 'Save'}
               </button>
               {!imageAltModal.isUpload && <button onClick={deleteImage} className="flex-1 bg-red-500 text-white py-2 rounded-lg text-sm">Delete</button>}
-              <button onClick={() => { if (imageAltModal.isUpload && imageAltModal.src) URL.revokeObjectURL(imageAltModal.src); setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isUpload: false, file: null }); }}
+              <button onClick={() => { if (imageAltModal.isUpload && imageAltModal.src) URL.revokeObjectURL(imageAltModal.src); setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isUpload: false, file: null, error: '' }); }}
                 className="flex-1 bg-gray-100 py-2 rounded-lg text-sm">Cancel</button>
             </div>
           </div>
@@ -1050,6 +1090,22 @@ export default function ContentOps() {
           </div>
         </div>
       )}
+
+      {/* Footer */}
+      <footer className="border-t border-gray-200 bg-white mt-16">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex items-center justify-between flex-wrap gap-4">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 bg-[#0ea5e9] rounded flex items-center justify-center"><Sparkles className="w-3.5 h-3.5 text-white" /></div>
+            <span className="text-sm font-semibold text-gray-700">ContentOps</span>
+            <span className="text-xs text-gray-400">by SalesRobot</span>
+          </div>
+          <div className="flex items-center gap-6 text-xs text-gray-400">
+            <span>Brave + Google Search</span>
+            <span>Claude AI</span>
+            <span>Webflow CMS</span>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }
