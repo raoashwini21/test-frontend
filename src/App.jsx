@@ -188,8 +188,8 @@ export default function ContentOps() {
 
   const editorRef = useRef(null);
   const savedRangeRef = useRef(null);
-  // Track whether we need to reload editor content (only on mode switch, not every edit)
-  const editorNeedsReload = useRef(false);
+  // Incremented when editor needs to reload HTML from state (analysis done, HTML source applied)
+  const [contentVersion, setContentVersion] = useState(0);
 
   // ── Init ──────────────────────────────────────
   useEffect(() => {
@@ -200,23 +200,22 @@ export default function ContentOps() {
   }, []);
 
   // ══════════════════════════════════════════════
-  // CRITICAL FIX: Editor ↔ State sync
+  // Editor content loading (ref-based, NOT via dangerouslySetInnerHTML)
   //
-  // OLD BUG: useEffect watched [editMode, editedContent]
-  //   → Every keystroke: syncFromEditor sets editedContent
-  //   → useEffect fires, compares innerHTML !== editedContent (always true due to browser normalization)
-  //   → Sets innerHTML again → cursor jumps to start → content corrupts
+  // WHY: dangerouslySetInnerHTML on a contentEditable div causes React to
+  // reset the DOM on every state change → cursor jumps to top, scroll resets.
   //
-  // FIX: Only reload editor HTML when SWITCHING modes (not on every edit)
+  // HOW: We load HTML into the editor ONLY via ref, triggered by:
+  //   - editMode change (switching from preview/html back to edit)
+  //   - contentVersion change (new analysis loaded, HTML source applied)
+  // Normal keystrokes flow one-way: editor DOM → state (via syncFromEditor)
   // ══════════════════════════════════════════════
   useEffect(() => {
     if (editMode === 'edit' && editorRef.current) {
-      // Only set innerHTML when entering edit mode (from preview/html)
-      // or when analysis first loads content
       editorRef.current.innerHTML = editedContent;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editMode]); // ← ONLY editMode, NOT editedContent
+  }, [editMode, contentVersion]); // editMode OR contentVersion, NOT editedContent
 
   // ── Editor helpers ────────────────────────────
   const saveRange = () => {
@@ -428,8 +427,7 @@ export default function ContentOps() {
 
   const applyHtmlSource = () => {
     setEditedContent(htmlSource);
-    // Mark that editor needs reload when switching back
-    editorNeedsReload.current = true;
+    setContentVersion(v => v + 1);
     setEditMode('edit');
   };
 
@@ -659,8 +657,8 @@ export default function ContentOps() {
       setEditedContent(updated);
       setShowHighlights(true);
       setEditMode('edit');
-      // Force editor reload with new content
-      editorNeedsReload.current = true;
+      // Bump version so useEffect reloads editor with new content
+      setContentVersion(v => v + 1);
 
       setStatus({ type: 'success', message: data.fromCache ? 'From cache!' : hasGsc ? `Optimized with ${gscInfo.keywords.length} keywords!` : 'Analysis complete!' });
       setView('review');
@@ -932,7 +930,7 @@ export default function ContentOps() {
                   <button onClick={() => execCmd('undo')} className="p-2 rounded hover:bg-gray-200 text-gray-700" title="Undo"><Undo2 className="w-4 h-4" /></button>
                 </div>
 
-                {/* The actual editor - contentEditable preserves raw HTML */}
+                {/* The actual editor - content loaded via ref, NOT dangerouslySetInnerHTML */}
                 <div
                   ref={editorRef}
                   className="co-editor"
@@ -940,7 +938,6 @@ export default function ContentOps() {
                   suppressContentEditableWarning
                   onInput={syncFromEditor}
                   onClick={handleEditorClick}
-                  dangerouslySetInnerHTML={{ __html: editedContent }}
                   style={{ minHeight: 600 }}
                 />
               </div>
