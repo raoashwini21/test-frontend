@@ -11,6 +11,299 @@ const detectBlogType = (title) => {
   return 'MOFU';
 };
 
+// ── Brand confusion detection ───────────────────
+// Generic brand confusion detection system.
+// Has a known-confusions database AND a fallback for unknown brands.
+// Works for any brand — not just Copilot.
+
+const KNOWN_BRAND_CONFUSIONS = [
+  {
+    trigger: 'copilot',
+    variants: [
+      {
+        name: 'Copilot.ai', domain: 'copilot.ai',
+        description: 'a B2B sales engagement & AI-powered sales automation platform',
+        signals: ['copilot.ai', 'copilot ai', 'sales engagement', 'sales automation', 'cold email', 'outbound', 'linkedin automation', 'sales prospecting', 'sales tool', 'email sequences'],
+        antiSignals: ['microsoft', 'github', 'bing', 'windows', 'office 365', 'microsoft 365', 'm365']
+      },
+      {
+        name: 'Microsoft Copilot', domain: 'microsoft.com',
+        description: 'Microsoft\'s AI assistant integrated into Microsoft 365, Bing, and Windows',
+        signals: ['microsoft copilot', 'microsoft 365', 'm365', 'bing copilot', 'windows copilot', 'office copilot', 'teams copilot', 'word copilot', 'excel copilot'],
+        antiSignals: ['copilot.ai', 'sales engagement', 'cold email']
+      },
+      {
+        name: 'GitHub Copilot', domain: 'github.com',
+        description: 'GitHub\'s AI pair-programming and code completion tool',
+        signals: ['github copilot', 'code completion', 'ai pair programming', 'copilot for code', 'vscode copilot', 'code suggestions'],
+        antiSignals: ['copilot.ai', 'sales engagement', 'microsoft 365']
+      }
+    ]
+  },
+  {
+    trigger: 'jasper',
+    variants: [
+      {
+        name: 'Jasper AI', domain: 'jasper.ai',
+        description: 'an AI content creation and marketing platform',
+        signals: ['jasper.ai', 'jasper ai', 'ai writing', 'content creation', 'marketing copy', 'copywriting tool', 'ai copywriter', 'brand voice'],
+        antiSignals: ['jasper stone', 'gemstone', 'mineral', 'national park']
+      },
+      {
+        name: 'Jasper (other)', domain: null,
+        description: 'a gemstone, place name, or other non-software use',
+        signals: ['gemstone', 'mineral', 'stone', 'jewelry', 'national park', 'jasper alberta'],
+        antiSignals: ['jasper.ai', 'ai writing', 'content creation']
+      }
+    ]
+  },
+  {
+    trigger: 'apollo',
+    variants: [
+      {
+        name: 'Apollo.io', domain: 'apollo.io',
+        description: 'a B2B sales intelligence and engagement platform',
+        signals: ['apollo.io', 'apollo sales', 'sales intelligence', 'lead database', 'sales engagement', 'prospecting tool', 'email outreach', 'contact database'],
+        antiSignals: ['apollo mission', 'apollo space', 'apollo graphql', 'apollo server', 'greek god']
+      },
+      {
+        name: 'Apollo GraphQL', domain: 'apollographql.com',
+        description: 'a GraphQL implementation platform for APIs',
+        signals: ['apollo graphql', 'apollo server', 'apollo client', 'graphql', 'api gateway', 'apollo federation'],
+        antiSignals: ['apollo.io', 'sales intelligence', 'lead database']
+      }
+    ]
+  },
+  {
+    trigger: 'drift',
+    variants: [
+      {
+        name: 'Drift (by Salesloft)', domain: 'drift.com',
+        description: 'a conversational marketing and sales platform (now part of Salesloft)',
+        signals: ['drift.com', 'drift chat', 'conversational marketing', 'drift bot', 'salesloft', 'live chat', 'chatbot platform'],
+        antiSignals: ['drift car', 'drifting', 'tokyo drift']
+      },
+      {
+        name: 'Drift (general)', domain: null,
+        description: 'automotive drifting or other non-software use',
+        signals: ['drift car', 'drifting', 'tokyo drift', 'motorsport'],
+        antiSignals: ['drift.com', 'conversational marketing', 'chatbot']
+      }
+    ]
+  },
+  {
+    trigger: 'gong',
+    variants: [
+      {
+        name: 'Gong.io', domain: 'gong.io',
+        description: 'a revenue intelligence platform that analyzes sales conversations',
+        signals: ['gong.io', 'gong platform', 'revenue intelligence', 'conversation intelligence', 'call recording', 'sales analytics', 'deal intelligence'],
+        antiSignals: ['gong instrument', 'gong sound', 'gong meditation']
+      },
+      {
+        name: 'Gong (instrument)', domain: null,
+        description: 'a percussion instrument or sound',
+        signals: ['gong instrument', 'gong sound', 'gong meditation', 'gong bath'],
+        antiSignals: ['gong.io', 'revenue intelligence', 'sales']
+      }
+    ]
+  },
+  {
+    trigger: 'otter',
+    variants: [
+      {
+        name: 'Otter.ai', domain: 'otter.ai',
+        description: 'an AI meeting transcription and note-taking tool',
+        signals: ['otter.ai', 'otter ai', 'meeting transcription', 'ai notes', 'meeting notes', 'transcription tool'],
+        antiSignals: ['otter animal', 'sea otter', 'river otter', 'otter habitat']
+      },
+      {
+        name: 'Otter (animal)', domain: null,
+        description: 'the aquatic mammal',
+        signals: ['otter animal', 'sea otter', 'river otter', 'otter habitat', 'otter pup'],
+        antiSignals: ['otter.ai', 'transcription', 'meeting notes']
+      }
+    ]
+  },
+  {
+    trigger: 'clay',
+    variants: [
+      {
+        name: 'Clay (GTM platform)', domain: 'clay.com',
+        description: 'a data enrichment and outbound sales platform',
+        signals: ['clay.com', 'clay app', 'data enrichment', 'waterfall enrichment', 'clay table', 'outbound tool', 'prospecting'],
+        antiSignals: ['clay material', 'pottery', 'ceramic', 'clay soil', 'modeling clay']
+      },
+      {
+        name: 'Clay (material)', domain: null,
+        description: 'a natural material used for pottery and construction',
+        signals: ['clay material', 'pottery', 'ceramic', 'clay soil', 'modeling clay', 'clay art'],
+        antiSignals: ['clay.com', 'data enrichment', 'prospecting']
+      }
+    ]
+  },
+  {
+    trigger: 'outreach',
+    variants: [
+      {
+        name: 'Outreach.io', domain: 'outreach.io',
+        description: 'a sales execution platform for sales engagement and pipeline management',
+        signals: ['outreach.io', 'outreach platform', 'sales execution', 'outreach sequences', 'sales engagement platform', 'outreach pricing'],
+        antiSignals: ['community outreach', 'outreach program', 'outreach ministry', 'public outreach']
+      },
+      {
+        name: 'Outreach (general)', domain: null,
+        description: 'community, public, or organizational outreach activities',
+        signals: ['community outreach', 'outreach program', 'outreach ministry', 'public outreach'],
+        antiSignals: ['outreach.io', 'sales execution', 'sales engagement']
+      }
+    ]
+  },
+  {
+    trigger: 'loom',
+    variants: [
+      {
+        name: 'Loom (video)', domain: 'loom.com',
+        description: 'a video messaging and screen recording platform',
+        signals: ['loom.com', 'loom video', 'screen recording', 'video messaging', 'loom recording', 'async video'],
+        antiSignals: ['loom weaving', 'loom textile', 'weaving loom']
+      },
+      {
+        name: 'Loom (textile)', domain: null,
+        description: 'a device for weaving fabric',
+        signals: ['loom weaving', 'loom textile', 'weaving loom', 'handloom'],
+        antiSignals: ['loom.com', 'screen recording', 'video messaging']
+      }
+    ]
+  },
+  {
+    trigger: 'mercury',
+    variants: [
+      {
+        name: 'Mercury (banking)', domain: 'mercury.com',
+        description: 'a fintech banking platform for startups',
+        signals: ['mercury.com', 'mercury bank', 'startup banking', 'mercury account', 'business banking', 'mercury treasury'],
+        antiSignals: ['mercury planet', 'mercury element', 'mercury retrograde', 'freddie mercury']
+      },
+      {
+        name: 'Mercury (other)', domain: null,
+        description: 'the planet, chemical element, or other uses',
+        signals: ['mercury planet', 'mercury element', 'mercury retrograde', 'freddie mercury', 'mercury thermometer'],
+        antiSignals: ['mercury.com', 'mercury bank', 'startup banking']
+      }
+    ]
+  },
+  {
+    trigger: 'rippling',
+    variants: [
+      {
+        name: 'Rippling', domain: 'rippling.com',
+        description: 'an HR, IT, and finance platform for workforce management',
+        signals: ['rippling.com', 'rippling hr', 'rippling platform', 'workforce management', 'rippling payroll', 'rippling it'],
+        antiSignals: ['rippling water', 'rippling effect']
+      }
+    ]
+  },
+  {
+    trigger: 'ramp',
+    variants: [
+      {
+        name: 'Ramp (finance)', domain: 'ramp.com',
+        description: 'a corporate card and spend management platform',
+        signals: ['ramp.com', 'ramp card', 'corporate card', 'spend management', 'ramp finance', 'expense management'],
+        antiSignals: ['wheelchair ramp', 'on-ramp', 'ramp up']
+      },
+      {
+        name: 'Ramp (general)', domain: null,
+        description: 'a physical incline or the act of increasing',
+        signals: ['wheelchair ramp', 'on-ramp', 'ramp up', 'loading ramp'],
+        antiSignals: ['ramp.com', 'corporate card', 'spend management']
+      }
+    ]
+  }
+];
+
+const detectBrandContext = (title, content) => {
+  const hints = [];
+  const t = (title || '').toLowerCase();
+  const c = (content || '').toLowerCase();
+  const combined = t + ' ' + c;
+
+  // ── Pass 1: Check known brand confusions ──
+  for (const confusion of KNOWN_BRAND_CONFUSIONS) {
+    if (!combined.includes(confusion.trigger)) continue;
+    if (confusion.variants.length < 2) continue;
+
+    // Score each variant by signal matches
+    const scored = confusion.variants.map(v => {
+      let score = 0;
+      let antiScore = 0;
+      for (const sig of v.signals) {
+        if (combined.includes(sig)) score += (t.includes(sig) ? 3 : 1);
+      }
+      for (const anti of v.antiSignals) {
+        if (combined.includes(anti)) antiScore += 2;
+      }
+      return { ...v, score, antiScore, net: score - antiScore };
+    });
+
+    scored.sort((a, b) => b.net - a.net);
+    const best = scored[0];
+    const second = scored[1];
+
+    if (best.net > 0 && (second.net <= 0 || best.net >= second.net + 3)) {
+      // Clear winner
+      const others = scored.filter(s => s !== best).map(s => s.name).join(', ');
+      hints.push(
+        `BRAND DISAMBIGUATION: "${confusion.trigger}" in this blog refers to ${best.name}${best.domain ? ` (${best.domain})` : ''} — ${best.description}. It is NOT ${others}. Do NOT include any information about ${others}. All facts, pricing, features, and comparisons must be about ${best.name}.`
+      );
+    } else {
+      // Ambiguous
+      const variantList = scored.map(s => `${s.name}${s.domain ? ` (${s.domain})` : ''}: ${s.description}`).join('; ');
+      hints.push(
+        `BRAND DISAMBIGUATION: The word "${confusion.trigger}" appears in this blog and could refer to multiple products: ${variantList}. READ THE FULL BLOG CAREFULLY to determine which product is being discussed. Ensure ALL facts, pricing, and features match the correct product. Do NOT mix up these different products.`
+      );
+    }
+  }
+
+  // ── Pass 2: Generic fallback for brands NOT in database ──
+  // Catches patterns like "X review", "X vs Y", "X pricing", "X alternative"
+  const titleMatch = (title || '').match(/^([\w][\w .&-]{1,30}?)\s+(review|vs\.?|versus|pricing|alternative|comparison|competitors)/i);
+  if (titleMatch) {
+    const brandName = titleMatch[1].trim().toLowerCase();
+    const alreadyHandled = hints.some(h => h.toLowerCase().includes(brandName));
+    if (!alreadyHandled && brandName.length > 2) {
+      // Look for a domain in the content that clarifies the brand
+      const escaped = brandName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '[-. ]?');
+      const domainMatch = combined.match(new RegExp(`(${escaped}\\.[a-z]{2,10})`, 'i'));
+      if (domainMatch) {
+        hints.push(
+          `BRAND DISAMBIGUATION: This blog discusses "${titleMatch[1].trim()}" — the specific product at ${domainMatch[1]}. When searching for facts, pricing, and features, make sure you are finding information about the product at ${domainMatch[1]}, NOT other products that may share a similar name. Read the blog content to understand exactly which product/company is being reviewed.`
+        );
+      } else {
+        hints.push(
+          `BRAND DISAMBIGUATION: This blog discusses "${titleMatch[1].trim()}". Multiple products or companies may share this name. READ THE FULL BLOG to understand which specific product is being discussed, then ensure all search queries and facts target the correct one. Look for domain names, product descriptions, and industry context clues in the blog content.`
+        );
+      }
+    }
+  }
+
+  return hints;
+};
+
+// ── TL;DR detection & generation ────────────────
+const hasTldr = (html) => {
+  const lower = html.toLowerCase();
+  return (
+    lower.includes('tl;dr') ||
+    lower.includes('tldr') ||
+    lower.includes('tl:dr') ||
+    lower.includes('too long; didn') ||
+    lower.includes('in a nutshell') ||
+    /<h[2-4][^>]*>.*?(summary|key takeaway|at a glance|quick summary|overview).*?<\/h[2-4]>/i.test(html)
+  );
+};
+
 // ── Change highlighting ─────────────────────────
 const createHighlightedHTML = (original, updated) => {
   const norm = (html) => html.replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/gi, ' ').replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -151,6 +444,8 @@ const EDITOR_STYLES = `
   .co-editor blockquote { border-left: 3px solid #0ea5e9; margin: 1rem 0; padding: 0.75rem 1rem; background: #f8fafc; }
   .co-editor [class*="widget"], .co-editor [class*="w-embed"], .co-editor [class*="w-widget"] { display: block; margin: 1rem 0; clear: both; padding: 12px; border: 1px dashed #94a3b8; background: #f8fafc; border-radius: 6px; }
   .co-editor * { max-width: 100%; box-sizing: border-box; }
+  .co-editor .tldr-box { background: #f0f9ff; border: 1px solid #bae6fd; border-left: 4px solid #0ea5e9; border-radius: 8px; padding: 16px 20px; margin: 1rem 0 1.5rem 0; }
+  .co-editor .tldr-box strong { color: #0369a1; }
 `;
 
 // ════════════════════════════════════════════════
@@ -189,7 +484,6 @@ export default function ContentOps() {
 
   const editorRef = useRef(null);
   const savedRangeRef = useRef(null);
-  // Incremented when editor needs to reload HTML from state (analysis done, HTML source applied)
   const [contentVersion, setContentVersion] = useState(0);
 
   // ── Init ──────────────────────────────────────
@@ -200,23 +494,12 @@ export default function ContentOps() {
     if (g) { try { setGscData(JSON.parse(g)); } catch {} }
   }, []);
 
-  // ══════════════════════════════════════════════
-  // Editor content loading (ref-based, NOT via dangerouslySetInnerHTML)
-  //
-  // WHY: dangerouslySetInnerHTML on a contentEditable div causes React to
-  // reset the DOM on every state change → cursor jumps to top, scroll resets.
-  //
-  // HOW: We load HTML into the editor ONLY via ref, triggered by:
-  //   - editMode change (switching from preview/html back to edit)
-  //   - contentVersion change (new analysis loaded, HTML source applied)
-  // Normal keystrokes flow one-way: editor DOM → state (via syncFromEditor)
-  // ══════════════════════════════════════════════
   useEffect(() => {
     if (editMode === 'edit' && editorRef.current) {
       editorRef.current.innerHTML = editedContent;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editMode, contentVersion]); // editMode OR contentVersion, NOT editedContent
+  }, [editMode, contentVersion]);
 
   // ── Editor helpers ────────────────────────────
   const saveRange = () => {
@@ -232,18 +515,12 @@ export default function ContentOps() {
     }
   };
 
-  // This is the ONLY function that reads from editor → state
-  // DEBOUNCED: We store live content in a ref (no re-render) and only
-  // flush to state every 500ms. This prevents React from re-rendering
-  // on every keystroke, which can cause scroll/layout issues.
   const liveContentRef = useRef('');
   const syncTimerRef = useRef(null);
 
   const syncFromEditor = useCallback(() => {
     if (editorRef.current) {
       liveContentRef.current = editorRef.current.innerHTML;
-
-      // Debounce the state update
       if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
       syncTimerRef.current = setTimeout(() => {
         setEditedContent(liveContentRef.current);
@@ -251,8 +528,6 @@ export default function ContentOps() {
     }
   }, []);
 
-  // Force-flush: reads latest editor content into state immediately
-  // Call this before publish, copy, or mode switch
   const flushEditorContent = useCallback(() => {
     if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
     if (editorRef.current) {
@@ -387,20 +662,25 @@ export default function ContentOps() {
     setImageAltModal(m => ({ ...m, error: '' }));
     setStatus({ type: 'info', message: 'Uploading to Webflow...' });
     try {
-      const b64 = await new Promise((res, rej) => {
-        const r = new FileReader();
-        r.onload = () => res(r.result);
-        r.onerror = rej;
-        r.readAsDataURL(imageAltModal.file);
-      });
+      // Use FormData (browser native) to send as multipart
+      const formData = new FormData();
+      formData.append('file', imageAltModal.file);
+      formData.append('alt', imageAltModal.currentAlt.trim());
+      formData.append('siteId', sid);
 
       const resp = await fetch(`${BACKEND_URL}/api/upload-image`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.webflowKey}` },
-        body: JSON.stringify({ image: b64, filename: imageAltModal.file.name, siteId: sid })
+        headers: {
+          'Authorization': `Bearer ${config.webflowKey}`
+          // Do NOT set Content-Type — browser sets it with boundary for FormData
+        },
+        body: formData
       });
 
-      if (!resp.ok) { const e = await resp.json(); throw new Error(e.error || 'Upload failed'); }
+      if (!resp.ok) {
+        const e = await resp.json().catch(() => ({ error: `Upload failed: ${resp.status}` }));
+        throw new Error(e.error || 'Upload failed');
+      }
       const data = await resp.json();
 
       // Insert into editor at cursor
@@ -650,6 +930,11 @@ export default function ContentOps() {
 
     const original = blog.fieldData['post-body'] || '';
 
+    // Detect brand context from full blog content
+    const brandHints = detectBrandContext(title, original);
+    // Check if TL;DR already exists
+    const needsTldr = !hasTldr(original);
+
     try {
       const r = await fetch(`${BACKEND_URL}/api/smartcheck`, {
         method: 'POST',
@@ -659,7 +944,9 @@ export default function ContentOps() {
           title,
           anthropicKey: config.anthropicKey,
           braveKey: config.braveKey,
-          gscKeywords: hasGsc ? gscInfo.keywords.map(k => ({ keyword: k.query, position: k.position, clicks: k.clicks })) : null
+          gscKeywords: hasGsc ? gscInfo.keywords.map(k => ({ keyword: k.query, position: k.position, clicks: k.clicks })) : null,
+          brandHints: brandHints.length > 0 ? brandHints : null,
+          addTldr: needsTldr
         })
       });
 
@@ -682,16 +969,18 @@ export default function ContentOps() {
         gscOptimized: hasGsc,
         gscKeywordsUsed: hasGsc ? gscInfo.keywords : null,
         fromCache: data.fromCache || false,
-        widgetsProtected: data.stats?.widgetsProtected || 0
+        widgetsProtected: data.stats?.widgetsProtected || 0,
+        tldrAdded: needsTldr && data.tldrAdded
       });
 
       setEditedContent(updated);
       setShowHighlights(true);
       setEditMode('edit');
-      // Bump version so useEffect reloads editor with new content
       setContentVersion(v => v + 1);
 
-      setStatus({ type: 'success', message: data.fromCache ? 'From cache!' : hasGsc ? `Optimized with ${gscInfo.keywords.length} keywords!` : 'Analysis complete!' });
+      let successMsg = data.fromCache ? 'From cache!' : hasGsc ? `Optimized with ${gscInfo.keywords.length} keywords!` : 'Analysis complete!';
+      if (needsTldr && data.tldrAdded) successMsg += ' TL;DR added.';
+      setStatus({ type: 'success', message: successMsg });
       setView('review');
     } catch (e) { setStatus({ type: 'error', message: e.message }); }
     finally { setLoading(false); }
@@ -702,14 +991,12 @@ export default function ContentOps() {
     if (!result || !selectedBlog) return;
     if (!blogTitle.trim()) { setStatus({ type: 'error', message: 'Title empty' }); return; }
 
-    // Flush latest editor content to state before publish
     const latestContent = flushEditorContent();
     if (!latestContent.trim()) { setStatus({ type: 'error', message: 'Content empty' }); return; }
 
     setLoading(true);
     setStatus({ type: 'info', message: 'Publishing...' });
 
-    // sanitizeListHTML is the ONLY transformation we apply before publish
     const sanitized = sanitizeListHTML(latestContent);
     const fieldData = { name: blogTitle.trim(), 'post-body': sanitized };
     if (metaDescription.trim()) fieldData[metaFieldName] = metaDescription.trim();
@@ -891,6 +1178,7 @@ export default function ContentOps() {
               <span className="bg-blue-100 text-blue-800 px-2 py-0.5 rounded text-xs font-medium">{result.blogType}</span>
               {result.widgetsProtected > 0 && <span className="bg-amber-100 text-amber-800 px-2 py-0.5 rounded text-xs font-medium">{result.widgetsProtected} widgets protected</span>}
               {highlightedData && <span className="bg-sky-100 text-sky-800 px-2 py-0.5 rounded text-xs font-medium">{highlightedData.changesCount} changes</span>}
+              {result.tldrAdded && <span className="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded text-xs font-medium">TL;DR added</span>}
               {result.fromCache && <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded text-xs">cached</span>}
             </div>
 
@@ -925,7 +1213,7 @@ export default function ContentOps() {
               )}
             </div>
 
-            {/* EDIT MODE - contentEditable, raw HTML preserved */}
+            {/* EDIT MODE */}
             {editMode === 'edit' && (
               <div className="bg-white rounded-lg border shadow-sm">
                 {/* Toolbar */}
@@ -957,7 +1245,6 @@ export default function ContentOps() {
 
                   <button onClick={openLinkModal} className="p-2 rounded hover:bg-gray-200 text-gray-700" title="Link"><Link2 className="w-4 h-4" /></button>
 
-                  {/* Image upload from device */}
                   <input type="file" accept="image/*" id="img-upload" className="hidden" onChange={handleImageUpload} />
                   <label htmlFor="img-upload" className="p-2 rounded hover:bg-gray-200 text-gray-700 cursor-pointer" title="Upload image">
                     <ImagePlus className="w-4 h-4" />
@@ -967,7 +1254,6 @@ export default function ContentOps() {
                   <button onClick={() => execCmd('undo')} className="p-2 rounded hover:bg-gray-200 text-gray-700" title="Undo"><Undo2 className="w-4 h-4" /></button>
                 </div>
 
-                {/* The actual editor - content loaded via ref, NOT dangerouslySetInnerHTML */}
                 <div
                   ref={editorRef}
                   className="co-editor"
@@ -980,7 +1266,7 @@ export default function ContentOps() {
               </div>
             )}
 
-            {/* PREVIEW MODE - read-only, highlights shown, NEVER editable */}
+            {/* PREVIEW MODE */}
             {editMode === 'preview' && (
               <div className="bg-white rounded-lg border shadow-sm">
                 <div className="co-editor" style={{ minHeight: 400 }}
