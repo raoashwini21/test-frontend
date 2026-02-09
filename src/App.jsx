@@ -741,7 +741,7 @@ export default function ContentOps() {
   // RENDER
   // ════════════════════════════════════════════════
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 flex flex-col">
       <style>{EDITOR_STYLES}</style>
 
       {/* Nav */}
@@ -762,7 +762,7 @@ export default function ContentOps() {
         </div>
       </nav>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
         {/* Status bar */}
         {status.message && (
           <div className={`mb-6 p-4 rounded-lg flex items-start gap-3 ${status.type === 'error' ? 'bg-red-50 border border-red-200' : status.type === 'success' ? 'bg-green-50 border border-green-200' : 'bg-blue-50 border border-blue-200'}`}>
@@ -1092,14 +1092,14 @@ export default function ContentOps() {
       )}
 
       {/* Footer */}
-      <footer className="border-t border-gray-200 bg-white mt-16">
+      <footer className="bg-[#0f172a] border-t border-gray-800 mt-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex items-center justify-between flex-wrap gap-4">
           <div className="flex items-center gap-2">
             <div className="w-6 h-6 bg-[#0ea5e9] rounded flex items-center justify-center"><Sparkles className="w-3.5 h-3.5 text-white" /></div>
-            <span className="text-sm font-semibold text-gray-700">ContentOps</span>
-            <span className="text-xs text-gray-400">by SalesRobot</span>
+            <span className="text-sm font-semibold text-gray-300">ContentOps</span>
+            <span className="text-xs text-gray-500">by SalesRobot</span>
           </div>
-          <div className="flex items-center gap-6 text-xs text-gray-400">
+          <div className="flex items-center gap-6 text-xs text-gray-500">
             <span>Brave + Google Search</span>
             <span>Claude AI</span>
             <span>Webflow CMS</span>
