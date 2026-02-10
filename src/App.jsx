@@ -654,39 +654,21 @@ export default function ContentOps() {
       setImageAltModal(m => ({ ...m, error: 'Alt text required for accessibility & SEO' })); return;
     }
 
-    const sid = detectedSiteId || config.siteId;
-    if (!sid) {
-      setImageAltModal(m => ({ ...m, error: 'Site ID not found. Load blogs first, or add Site ID in Settings.' })); return;
-    }
-
     setImageAltModal(m => ({ ...m, error: '' }));
-    setStatus({ type: 'info', message: 'Uploading to Webflow...' });
+
     try {
-      // Use FormData (browser native) to send as multipart
-      const formData = new FormData();
-      formData.append('file', imageAltModal.file);
-      formData.append('alt', imageAltModal.currentAlt.trim());
-      formData.append('siteId', sid);
-
-      const resp = await fetch(`${BACKEND_URL}/api/upload-image`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${config.webflowKey}`
-          // Do NOT set Content-Type — browser sets it with boundary for FormData
-        },
-        body: formData
+      // Convert file to base64 data URL (purely client-side, no server needed)
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error('Failed to read file'));
+        reader.readAsDataURL(imageAltModal.file);
       });
-
-      if (!resp.ok) {
-        const e = await resp.json().catch(() => ({ error: `Upload failed: ${resp.status}` }));
-        throw new Error(e.error || 'Upload failed');
-      }
-      const data = await resp.json();
 
       // Insert into editor at cursor
       restoreRange();
       const img = document.createElement('img');
-      img.src = data.url;
+      img.src = dataUrl;
       img.alt = imageAltModal.currentAlt.trim();
       img.loading = 'lazy';
       img.style.cssText = 'max-width:100%;height:auto;display:block;margin:1rem 0;border-radius:6px';
@@ -701,11 +683,10 @@ export default function ContentOps() {
 
       URL.revokeObjectURL(imageAltModal.src);
       setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isUpload: false, file: null, error: '' });
-      setStatus({ type: 'success', message: 'Image uploaded!' });
+      setStatus({ type: 'success', message: 'Image inserted!' });
       setTimeout(() => setStatus({ type: '', message: '' }), 2000);
     } catch (err) {
       setImageAltModal(m => ({ ...m, error: err.message }));
-      setStatus({ type: '', message: '' });
     }
   };
 
