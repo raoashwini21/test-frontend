@@ -637,20 +637,8 @@ export default function ContentOps() {
   };
 
   // ── Image upload via device ───────────────────
-  
-  const handleImageUpload = async (e) => {
-  const file = e.target.files?.[0];
-  if (!file) return;
-  if (!file.type.startsWith('image/')) { 
-    setStatus({ type: 'error', message: 'Select an image file' }); 
-    return; 
-  }
-  if (file.size > 5 * 1024 * 1024) { 
-    setStatus({ type: 'error', message: 'Max 5MB' }); 
-    return; 
-  }
-
-  // Place a marker at current cursor position
+  // Add this new function to save cursor position before file dialog
+const prepareImageUpload = () => {
   if (editorRef.current) {
     editorRef.current.focus();
     const sel = window.getSelection();
@@ -658,20 +646,37 @@ export default function ContentOps() {
       const range = sel.getRangeAt(0);
       const marker = document.createElement('span');
       marker.id = 'image-insertion-marker';
-      marker.textContent = '📍'; // Temporary marker
+      marker.textContent = '📍';
       marker.style.cssText = 'background: yellow; padding: 2px;';
       
       try {
         range.insertNode(marker);
-        // Move cursor after marker
-        range.setStartAfter(marker);
-        range.collapse(true);
-        sel.removeAllRanges();
-        sel.addRange(range);
       } catch (err) {
         console.warn('Marker insertion failed:', err);
       }
     }
+  }
+};
+
+const handleImageUpload = async (e) => {
+  const file = e.target.files?.[0];
+  if (!file) {
+    // Clean up marker if user cancelled
+    const marker = editorRef.current?.querySelector('#image-insertion-marker');
+    if (marker) marker.remove();
+    return;
+  }
+  if (!file.type.startsWith('image/')) { 
+    const marker = editorRef.current?.querySelector('#image-insertion-marker');
+    if (marker) marker.remove();
+    setStatus({ type: 'error', message: 'Select an image file' }); 
+    return; 
+  }
+  if (file.size > 5 * 1024 * 1024) { 
+    const marker = editorRef.current?.querySelector('#image-insertion-marker');
+    if (marker) marker.remove();
+    setStatus({ type: 'error', message: 'Max 5MB' }); 
+    return; 
   }
 
   const preview = URL.createObjectURL(file);
@@ -750,6 +755,10 @@ const insertUploadedImage = async () => {
     if (marker) marker.remove();
   }
 };
+
+
+
+  
   const updateImageAlt = () => {
     if (imageAltModal.isUpload) { insertUploadedImage(); return; }
     const imgs = editorRef.current?.querySelectorAll('img');
