@@ -637,6 +637,7 @@ export default function ContentOps() {
   };
 
   // ── Image upload via device ───────────────────
+  
   const handleImageUpload = async (e) => {
   const file = e.target.files?.[0];
   if (!file) return;
@@ -649,14 +650,8 @@ export default function ContentOps() {
     return; 
   }
 
-  // Save current cursor position BEFORE anything else
-  const sel = window.getSelection();
-  if (sel.rangeCount > 0 && editorRef.current?.contains(sel.getRangeAt(0).startContainer)) {
-    savedRangeRef.current = sel.getRangeAt(0).cloneRange();
-  } else {
-    // No valid selection - insert at end
-    savedRangeRef.current = null;
-  }
+  // Save cursor position
+  saveRange();
 
   const preview = URL.createObjectURL(file);
   setImageAltModal({ 
@@ -695,19 +690,15 @@ const insertUploadedImage = async () => {
     img.loading = 'lazy';
     img.style.cssText = 'max-width:100%;height:auto;display:block;margin:1rem 0;border-radius:6px';
 
-    // Insert at saved position
-    if (savedRangeRef.current) {
+    let inserted = false;
+
+    // Try to insert at saved cursor position
+    if (savedRangeRef.current && editorRef.current) {
       try {
-        // Create a temporary div to ensure proper block-level insertion
-        const wrapper = document.createElement('div');
-        wrapper.appendChild(img);
-        
         const sel = window.getSelection();
         sel.removeAllRanges();
         sel.addRange(savedRangeRef.current);
         
-        // Insert the image
-        savedRangeRef.current.deleteContents();
         savedRangeRef.current.insertNode(img);
         
         // Move cursor after image
@@ -717,26 +708,19 @@ const insertUploadedImage = async () => {
         sel.removeAllRanges();
         sel.addRange(newRange);
         
-        savedRangeRef.current = newRange;
+        inserted = true;
       } catch (err) {
         console.warn('Range insertion failed:', err);
-        // Fallback: append to end
-        if (editorRef.current) {
-          editorRef.current.appendChild(img);
-        }
-      }
-    } else {
-      // No saved range: append to end
-      if (editorRef.current) {
-        editorRef.current.appendChild(img);
       }
     }
 
-    // Force immediate sync
-    if (editorRef.current) {
-      liveContentRef.current = editorRef.current.innerHTML;
-      setEditedContent(editorRef.current.innerHTML);
+    // Fallback: append to end
+    if (!inserted && editorRef.current) {
+      editorRef.current.appendChild(img);
     }
+
+    // Sync content
+    syncFromEditor();
 
     URL.revokeObjectURL(imageAltModal.src);
     setImageAltModal({ 
