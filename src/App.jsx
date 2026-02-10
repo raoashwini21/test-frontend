@@ -650,8 +650,14 @@ export default function ContentOps() {
     return; 
   }
 
-  // Save cursor position
-  saveRange();
+  // Focus editor and save range immediately
+  if (editorRef.current) {
+    editorRef.current.focus();
+    const sel = window.getSelection();
+    if (sel.rangeCount > 0) {
+      savedRangeRef.current = sel.getRangeAt(0).cloneRange();
+    }
+  }
 
   const preview = URL.createObjectURL(file);
   setImageAltModal({ 
@@ -690,37 +696,52 @@ const insertUploadedImage = async () => {
     img.loading = 'lazy';
     img.style.cssText = 'max-width:100%;height:auto;display:block;margin:1rem 0;border-radius:6px';
 
-    let inserted = false;
+    if (!editorRef.current) {
+      throw new Error('Editor not available');
+    }
 
-    // Try to insert at saved cursor position
-    if (savedRangeRef.current && editorRef.current) {
+    // Try to insert at saved position
+    let inserted = false;
+    
+    if (savedRangeRef.current) {
       try {
-        const sel = window.getSelection();
-        sel.removeAllRanges();
-        sel.addRange(savedRangeRef.current);
+        // Check if the range is still valid
+        const rangeContainer = savedRangeRef.current.startContainer;
+        const isRangeValid = editorRef.current.contains(rangeContainer) || rangeContainer === editorRef.current;
         
-        savedRangeRef.current.insertNode(img);
-        
-        // Move cursor after image
-        const newRange = document.createRange();
-        newRange.setStartAfter(img);
-        newRange.collapse(true);
-        sel.removeAllRanges();
-        sel.addRange(newRange);
-        
-        inserted = true;
+        if (isRangeValid) {
+          const sel = window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(savedRangeRef.current);
+          
+          // Insert image
+          savedRangeRef.current.insertNode(img);
+          
+          // Move cursor after image
+          const newRange = document.createRange();
+          newRange.setStartAfter(img);
+          newRange.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(newRange);
+          
+          inserted = true;
+        }
       } catch (err) {
         console.warn('Range insertion failed:', err);
       }
     }
 
-    // Fallback: append to end
-    if (!inserted && editorRef.current) {
+    // Fallback: append to end of editor
+    if (!inserted) {
       editorRef.current.appendChild(img);
+      // Scroll to show the image
+      img.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
 
-    // Sync content
-    syncFromEditor();
+    // Force sync - use immediate update
+    const newContent = editorRef.current.innerHTML;
+    liveContentRef.current = newContent;
+    setEditedContent(newContent);
 
     URL.revokeObjectURL(imageAltModal.src);
     setImageAltModal({ 
@@ -735,7 +756,8 @@ const insertUploadedImage = async () => {
     setStatus({ type: 'success', message: 'Image inserted!' });
     setTimeout(() => setStatus({ type: '', message: '' }), 2000);
   } catch (err) {
-    setImageAltModal(m => ({ ...m, error: err.message }));
+    console.error('Image insertion error:', err);
+    setImageAltModal(m => ({ ...m, error: err.message || 'Failed to insert image' }));
   }
 };
 
