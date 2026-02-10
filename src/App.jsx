@@ -650,12 +650,27 @@ export default function ContentOps() {
     return; 
   }
 
-  // Focus editor and save range immediately
+  // Place a marker at current cursor position
   if (editorRef.current) {
     editorRef.current.focus();
     const sel = window.getSelection();
     if (sel.rangeCount > 0) {
-      savedRangeRef.current = sel.getRangeAt(0).cloneRange();
+      const range = sel.getRangeAt(0);
+      const marker = document.createElement('span');
+      marker.id = 'image-insertion-marker';
+      marker.textContent = '📍'; // Temporary marker
+      marker.style.cssText = 'background: yellow; padding: 2px;';
+      
+      try {
+        range.insertNode(marker);
+        // Move cursor after marker
+        range.setStartAfter(marker);
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      } catch (err) {
+        console.warn('Marker insertion failed:', err);
+      }
     }
   }
 
@@ -700,45 +715,16 @@ const insertUploadedImage = async () => {
       throw new Error('Editor not available');
     }
 
-    // Try to insert at saved position
-    let inserted = false;
-    
-    if (savedRangeRef.current) {
-      try {
-        // Check if the range is still valid
-        const rangeContainer = savedRangeRef.current.startContainer;
-        const isRangeValid = editorRef.current.contains(rangeContainer) || rangeContainer === editorRef.current;
-        
-        if (isRangeValid) {
-          const sel = window.getSelection();
-          sel.removeAllRanges();
-          sel.addRange(savedRangeRef.current);
-          
-          // Insert image
-          savedRangeRef.current.insertNode(img);
-          
-          // Move cursor after image
-          const newRange = document.createRange();
-          newRange.setStartAfter(img);
-          newRange.collapse(true);
-          sel.removeAllRanges();
-          sel.addRange(newRange);
-          
-          inserted = true;
-        }
-      } catch (err) {
-        console.warn('Range insertion failed:', err);
-      }
-    }
-
-    // Fallback: append to end of editor
-    if (!inserted) {
+    // Find and replace the marker
+    const marker = editorRef.current.querySelector('#image-insertion-marker');
+    if (marker) {
+      marker.parentNode.replaceChild(img, marker);
+    } else {
+      // No marker found - append to end
       editorRef.current.appendChild(img);
-      // Scroll to show the image
-      img.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
 
-    // Force sync - use immediate update
+    // Force immediate sync
     const newContent = editorRef.current.innerHTML;
     liveContentRef.current = newContent;
     setEditedContent(newContent);
@@ -758,9 +744,12 @@ const insertUploadedImage = async () => {
   } catch (err) {
     console.error('Image insertion error:', err);
     setImageAltModal(m => ({ ...m, error: err.message || 'Failed to insert image' }));
+    
+    // Clean up marker if it still exists
+    const marker = editorRef.current?.querySelector('#image-insertion-marker');
+    if (marker) marker.remove();
   }
 };
-
   const updateImageAlt = () => {
     if (imageAltModal.isUpload) { insertUploadedImage(); return; }
     const imgs = editorRef.current?.querySelectorAll('img');
