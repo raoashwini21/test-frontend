@@ -638,57 +638,123 @@ export default function ContentOps() {
 
   // ── Image upload via device ───────────────────
   const handleImageUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!file.type.startsWith('image/')) { setStatus({ type: 'error', message: 'Select an image file' }); return; }
-    if (file.size > 5 * 1024 * 1024) { setStatus({ type: 'error', message: 'Max 5MB' }); return; }
+  const file = e.target.files?.[0];
+  if (!file) return;
+  if (!file.type.startsWith('image/')) { 
+    setStatus({ type: 'error', message: 'Select an image file' }); 
+    return; 
+  }
+  if (file.size > 5 * 1024 * 1024) { 
+    setStatus({ type: 'error', message: 'Max 5MB' }); 
+    return; 
+  }
 
-    saveRange();
+  // Focus editor first, then save range
+  if (editorRef.current) {
+    editorRef.current.focus();
+    // Small delay to ensure focus is registered
+    setTimeout(() => {
+      saveRange();
+      const preview = URL.createObjectURL(file);
+      setImageAltModal({ 
+        show: true, 
+        src: preview, 
+        currentAlt: '', 
+        index: -1, 
+        isUpload: true, 
+        file, 
+        error: '' 
+      });
+    }, 10);
+  } else {
     const preview = URL.createObjectURL(file);
-    setImageAltModal({ show: true, src: preview, currentAlt: '', index: -1, isUpload: true, file, error: '' });
-    e.target.value = '';
-  };
+    setImageAltModal({ 
+      show: true, 
+      src: preview, 
+      currentAlt: '', 
+      index: -1, 
+      isUpload: true, 
+      file, 
+      error: '' 
+    });
+  }
+  e.target.value = '';
+};
 
   const insertUploadedImage = async () => {
-    if (!imageAltModal.file || !imageAltModal.currentAlt.trim()) {
-      setImageAltModal(m => ({ ...m, error: 'Alt text required for accessibility & SEO' })); return;
-    }
+  if (!imageAltModal.file || !imageAltModal.currentAlt.trim()) {
+    setImageAltModal(m => ({ ...m, error: 'Alt text required for accessibility & SEO' })); 
+    return;
+  }
 
-    setImageAltModal(m => ({ ...m, error: '' }));
+  setImageAltModal(m => ({ ...m, error: '' }));
 
-    try {
-      // Convert file to base64 data URL (purely client-side, no server needed)
-      const dataUrl = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = () => reject(new Error('Failed to read file'));
-        reader.readAsDataURL(imageAltModal.file);
-      });
+  try {
+    // Convert file to base64 data URL
+    const dataUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.readAsDataURL(imageAltModal.file);
+    });
 
-      // Insert into editor at cursor
-      restoreRange();
-      const img = document.createElement('img');
-      img.src = dataUrl;
-      img.alt = imageAltModal.currentAlt.trim();
-      img.loading = 'lazy';
-      img.style.cssText = 'max-width:100%;height:auto;display:block;margin:1rem 0;border-radius:6px';
+    // Create image element
+    const img = document.createElement('img');
+    img.src = dataUrl;
+    img.alt = imageAltModal.currentAlt.trim();
+    img.loading = 'lazy';
+    img.style.cssText = 'max-width:100%;height:auto;display:block;margin:1rem 0;border-radius:6px';
 
+    // Focus editor before inserting
+    if (editorRef.current) {
+      editorRef.current.focus();
+      
+      // Try to restore saved range
       if (savedRangeRef.current) {
-        savedRangeRef.current.insertNode(img);
-        savedRangeRef.current.setStartAfter(img);
-      } else if (editorRef.current) {
+        try {
+          const sel = window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(savedRangeRef.current);
+          savedRangeRef.current.insertNode(img);
+          
+          // Move cursor after image
+          const range = document.createRange();
+          range.setStartAfter(img);
+          range.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        } catch (err) {
+          // Fallback: append to end of editor
+          console.warn('Range insertion failed, appending to end:', err);
+          editorRef.current.appendChild(img);
+        }
+      } else {
+        // No saved range: append to end
         editorRef.current.appendChild(img);
       }
+      
+      // Force sync
       syncFromEditor();
-
-      URL.revokeObjectURL(imageAltModal.src);
-      setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isUpload: false, file: null, error: '' });
-      setStatus({ type: 'success', message: 'Image inserted!' });
-      setTimeout(() => setStatus({ type: '', message: '' }), 2000);
-    } catch (err) {
-      setImageAltModal(m => ({ ...m, error: err.message }));
+      // Also immediately update state
+      setEditedContent(editorRef.current.innerHTML);
     }
-  };
+
+    URL.revokeObjectURL(imageAltModal.src);
+    setImageAltModal({ 
+      show: false, 
+      src: '', 
+      currentAlt: '', 
+      index: -1, 
+      isUpload: false, 
+      file: null, 
+      error: '' 
+    });
+    setStatus({ type: 'success', message: 'Image inserted!' });
+    setTimeout(() => setStatus({ type: '', message: '' }), 2000);
+  } catch (err) {
+    setImageAltModal(m => ({ ...m, error: err.message }));
+  }
+};
 
   const updateImageAlt = () => {
     if (imageAltModal.isUpload) { insertUploadedImage(); return; }
