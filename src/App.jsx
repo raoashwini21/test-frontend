@@ -1198,7 +1198,7 @@ export default function ContentOps() {
             {editMode === 'edit' && (
               <div className="bg-white rounded-lg border shadow-sm">
                 {/* Toolbar */}
-                <div className="flex items-center gap-1 p-2 border-b bg-gray-50 rounded-t-lg flex-wrap">
+                <div className="flex items-center gap-1 p-2 border-b bg-gray-50 rounded-t-lg flex-wrap sticky top-0 z-30 shadow-sm">
                   <button onClick={() => execCmd('bold')} className="p-2 rounded hover:bg-gray-200 text-gray-700" title="Bold"><Bold className="w-4 h-4" /></button>
                   <button onClick={() => execCmd('italic')} className="p-2 rounded hover:bg-gray-200 text-gray-700" title="Italic"><Italic className="w-4 h-4" /></button>
                   <div className="w-px h-6 bg-gray-300 mx-1" />
