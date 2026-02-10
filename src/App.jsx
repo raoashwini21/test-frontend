@@ -649,39 +649,29 @@ export default function ContentOps() {
     return; 
   }
 
-  // Focus editor first, then save range
-  if (editorRef.current) {
-    editorRef.current.focus();
-    // Small delay to ensure focus is registered
-    setTimeout(() => {
-      saveRange();
-      const preview = URL.createObjectURL(file);
-      setImageAltModal({ 
-        show: true, 
-        src: preview, 
-        currentAlt: '', 
-        index: -1, 
-        isUpload: true, 
-        file, 
-        error: '' 
-      });
-    }, 10);
+  // Save current cursor position BEFORE anything else
+  const sel = window.getSelection();
+  if (sel.rangeCount > 0 && editorRef.current?.contains(sel.getRangeAt(0).startContainer)) {
+    savedRangeRef.current = sel.getRangeAt(0).cloneRange();
   } else {
-    const preview = URL.createObjectURL(file);
-    setImageAltModal({ 
-      show: true, 
-      src: preview, 
-      currentAlt: '', 
-      index: -1, 
-      isUpload: true, 
-      file, 
-      error: '' 
-    });
+    // No valid selection - insert at end
+    savedRangeRef.current = null;
   }
+
+  const preview = URL.createObjectURL(file);
+  setImageAltModal({ 
+    show: true, 
+    src: preview, 
+    currentAlt: '', 
+    index: -1, 
+    isUpload: true, 
+    file, 
+    error: '' 
+  });
   e.target.value = '';
 };
 
-  const insertUploadedImage = async () => {
+const insertUploadedImage = async () => {
   if (!imageAltModal.file || !imageAltModal.currentAlt.trim()) {
     setImageAltModal(m => ({ ...m, error: 'Alt text required for accessibility & SEO' })); 
     return;
@@ -705,37 +695,46 @@ export default function ContentOps() {
     img.loading = 'lazy';
     img.style.cssText = 'max-width:100%;height:auto;display:block;margin:1rem 0;border-radius:6px';
 
-    // Focus editor before inserting
-    if (editorRef.current) {
-      editorRef.current.focus();
-      
-      // Try to restore saved range
-      if (savedRangeRef.current) {
-        try {
-          const sel = window.getSelection();
-          sel.removeAllRanges();
-          sel.addRange(savedRangeRef.current);
-          savedRangeRef.current.insertNode(img);
-          
-          // Move cursor after image
-          const range = document.createRange();
-          range.setStartAfter(img);
-          range.collapse(true);
-          sel.removeAllRanges();
-          sel.addRange(range);
-        } catch (err) {
-          // Fallback: append to end of editor
-          console.warn('Range insertion failed, appending to end:', err);
+    // Insert at saved position
+    if (savedRangeRef.current) {
+      try {
+        // Create a temporary div to ensure proper block-level insertion
+        const wrapper = document.createElement('div');
+        wrapper.appendChild(img);
+        
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(savedRangeRef.current);
+        
+        // Insert the image
+        savedRangeRef.current.deleteContents();
+        savedRangeRef.current.insertNode(img);
+        
+        // Move cursor after image
+        const newRange = document.createRange();
+        newRange.setStartAfter(img);
+        newRange.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(newRange);
+        
+        savedRangeRef.current = newRange;
+      } catch (err) {
+        console.warn('Range insertion failed:', err);
+        // Fallback: append to end
+        if (editorRef.current) {
           editorRef.current.appendChild(img);
         }
-      } else {
-        // No saved range: append to end
+      }
+    } else {
+      // No saved range: append to end
+      if (editorRef.current) {
         editorRef.current.appendChild(img);
       }
-      
-      // Force sync
-      syncFromEditor();
-      // Also immediately update state
+    }
+
+    // Force immediate sync
+    if (editorRef.current) {
+      liveContentRef.current = editorRef.current.innerHTML;
       setEditedContent(editorRef.current.innerHTML);
     }
 
