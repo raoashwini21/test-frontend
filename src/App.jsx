@@ -578,6 +578,7 @@ export default function ContentOps() {
 
   // ── Editor click handlers ─────────────────────
   const handleEditorClick = (e) => {
+    trackCursorPosition(); // always update cursor position
     if (e.target.tagName === 'IMG') {
       const imgs = Array.from(editorRef.current.querySelectorAll('img'));
       setImageAltModal({ show: true, src: e.target.src, currentAlt: e.target.alt || '', index: imgs.indexOf(e.target), isUpload: false, file: null, error: '' });
@@ -637,51 +638,46 @@ export default function ContentOps() {
   };
 
   // ── Image upload via device ───────────────────
-  // Uses a direct DOM node index reference (not a marker span) to track
-  // where the cursor was. This survives React re-renders because we store
-  // the child index, not a DOM reference that can get detached.
-  const imageInsertIndexRef = useRef(-1);
+  // We continuously track which editor child the cursor is in,
+  // so when the image button is clicked we already know the position.
+  // This avoids all issues with focus loss, React re-renders, and modals.
+  const lastCursorChildIndexRef = useRef(-1);
 
-  const prepareImageUpload = () => {
-    imageInsertIndexRef.current = -1;
+  const trackCursorPosition = useCallback(() => {
     if (!editorRef.current) return;
-
     const sel = window.getSelection();
     if (!sel.rangeCount) return;
 
     const range = sel.getRangeAt(0);
 
     // Verify cursor is inside the editor
-    let node = range.startContainer;
+    let check = range.startContainer;
     let insideEditor = false;
-    while (node) {
-      if (node === editorRef.current) { insideEditor = true; break; }
-      node = node.parentNode;
+    while (check) {
+      if (check === editorRef.current) { insideEditor = true; break; }
+      check = check.parentNode;
     }
     if (!insideEditor) return;
 
-    // Walk up to find the direct child of editor that contains the cursor
-    node = range.startContainer;
+    // Walk up from cursor to find the direct child of editorRef
+    let node = range.startContainer;
     while (node && node.parentNode !== editorRef.current) {
       node = node.parentNode;
     }
 
     if (node && node.parentNode === editorRef.current) {
-      // Store the index of this child node (survives React re-renders)
       const children = Array.from(editorRef.current.childNodes);
-      imageInsertIndexRef.current = children.indexOf(node);
+      lastCursorChildIndexRef.current = children.indexOf(node);
     }
-  };
+  }, []);
 
   const handleImageUpload = async (e) => {
     const file = e.target.files?.[0];
-    if (!file) { imageInsertIndexRef.current = -1; return; }
+    if (!file) return;
     if (!file.type.startsWith('image/')) {
-      imageInsertIndexRef.current = -1;
       setStatus({ type: 'error', message: 'Select an image file' }); return;
     }
     if (file.size > 5 * 1024 * 1024) {
-      imageInsertIndexRef.current = -1;
       setStatus({ type: 'error', message: 'Max 5MB' }); return;
     }
 
@@ -713,11 +709,11 @@ export default function ContentOps() {
 
       if (!editorRef.current) throw new Error('Editor not available');
 
-      const idx = imageInsertIndexRef.current;
+      const idx = lastCursorChildIndexRef.current;
       const children = editorRef.current.childNodes;
 
       if (idx >= 0 && idx < children.length) {
-        // Insert AFTER the child node where cursor was
+        // Insert AFTER the block where cursor was
         const refNode = children[idx];
         if (refNode.nextSibling) {
           editorRef.current.insertBefore(img, refNode.nextSibling);
@@ -725,11 +721,9 @@ export default function ContentOps() {
           editorRef.current.appendChild(img);
         }
       } else {
-        // No valid position saved — append to end
+        // No cursor position tracked — append at end
         editorRef.current.appendChild(img);
       }
-
-      imageInsertIndexRef.current = -1;
 
       // Force immediate sync
       const newContent = editorRef.current.innerHTML;
@@ -742,7 +736,6 @@ export default function ContentOps() {
       setTimeout(() => setStatus({ type: '', message: '' }), 2000);
     } catch (err) {
       console.error('Image insertion error:', err);
-      imageInsertIndexRef.current = -1;
       setImageAltModal(m => ({ ...m, error: err.message || 'Failed to insert image' }));
     }
   };
@@ -1284,16 +1277,7 @@ export default function ContentOps() {
                   <button onClick={openLinkModal} className="p-2 rounded hover:bg-gray-200 text-gray-700" title="Link"><Link2 className="w-4 h-4" /></button>
 
                   <input type="file" accept="image/*" id="img-upload" className="hidden" onChange={handleImageUpload} />
-                  <label
-                    className="p-2 rounded hover:bg-gray-200 text-gray-700 cursor-pointer"
-                    title="Upload image"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      prepareImageUpload();
-                      // Small delay so marker is placed before file dialog steals focus
-                      setTimeout(() => document.getElementById('img-upload')?.click(), 50);
-                    }}
-                  >
+                  <label htmlFor="img-upload" className="p-2 rounded hover:bg-gray-200 text-gray-700 cursor-pointer" title="Upload image">
                     <ImagePlus className="w-4 h-4" />
                   </label>
                   <div className="w-px h-6 bg-gray-300 mx-1" />
@@ -1308,6 +1292,8 @@ export default function ContentOps() {
                   suppressContentEditableWarning
                   onInput={syncFromEditor}
                   onClick={handleEditorClick}
+                  onKeyUp={trackCursorPosition}
+                  onMouseUp={trackCursorPosition}
                   style={{ minHeight: 600 }}
                 />
               </div>
