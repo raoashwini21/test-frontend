@@ -381,9 +381,9 @@ const sanitizeListHTML = (html) => {
 
   // 0. WEBFLOW FIX: Flatten nested lists (Webflow doesn't support nested ul/ol in rich text)
   // Convert: <ul><li>Parent<ul><li>Child</li></ul></li></ul>
-  // Into:    <ul><li>Parent</li><li>— Child</li></ul>
+  // Into:    <ul><li>Parent</li><li>→ Child</li></ul>
   // Repeat until no more nesting exists
-  let maxPasses = 5;
+  let maxPasses = 10; // Increased from 5 to handle deeper nesting
   while (root.querySelector('li ul, li ol') && maxPasses-- > 0) {
     root.querySelectorAll('li > ul, li > ol').forEach(nestedList => {
       const parentLi = nestedList.parentElement;
@@ -394,10 +394,10 @@ const sanitizeListHTML = (html) => {
       let insertAfter = parentLi;
 
       nestedItems.forEach(nestedLi => {
-        // Prefix with "— " to show it was a sub-item
+        // Prefix with "→ " to show it was a sub-item (better visual than "—")
         const text = nestedLi.innerHTML.trim();
-        if (!text.startsWith('—') && !text.startsWith('–') && !text.startsWith('-')) {
-          nestedLi.innerHTML = '— ' + text;
+        if (!text.startsWith('→') && !text.startsWith('—') && !text.startsWith('–') && !text.startsWith('-') && !text.startsWith('•')) {
+          nestedLi.innerHTML = '→ ' + text;
         }
         // Insert after the parent li in the parent list
         if (insertAfter.nextSibling) {
@@ -412,6 +412,18 @@ const sanitizeListHTML = (html) => {
       nestedList.remove();
     });
   }
+  
+  // Additional pass: remove any lists that are still nested (shouldn't happen, but safety check)
+  root.querySelectorAll('ul ul, ul ol, ol ul, ol ol').forEach(nested => {
+    const items = Array.from(nested.querySelectorAll(':scope > li'));
+    items.forEach(li => {
+      if (!li.innerHTML.trim().startsWith('→')) {
+        li.innerHTML = '→ ' + li.innerHTML;
+      }
+      nested.parentNode.insertBefore(li, nested);
+    });
+    nested.remove();
+  });
 
   // 1. Fix orphaned <li> not inside ul/ol
   const orphans = Array.from(root.querySelectorAll('li')).filter(li => {
@@ -451,37 +463,63 @@ const sanitizeListHTML = (html) => {
     }
   });
 
-  // 3. Ensure roles on all lists (Webflow expects role="list" and role="listitem")
-  root.querySelectorAll('ul, ol').forEach(el => { if (!el.getAttribute('role')) el.setAttribute('role', 'list'); });
-  root.querySelectorAll('li').forEach(el => { if (!el.getAttribute('role')) el.setAttribute('role', 'listitem'); });
+  // 3. Ensure roles on all lists and clean attributes
+  // Webflow expects role="list" and role="listitem", and doesn't like extra attributes
+  root.querySelectorAll('ul, ol').forEach(el => { 
+    if (!el.getAttribute('role')) el.setAttribute('role', 'list');
+    // Remove problematic attributes
+    el.removeAttribute('style');
+    el.removeAttribute('class');
+    Array.from(el.attributes).forEach(attr => {
+      if (attr.name !== 'role' && attr.name !== el.tagName.toLowerCase()) {
+        el.removeAttribute(attr.name);
+      }
+    });
+  });
+  root.querySelectorAll('li').forEach(el => { 
+    if (!el.getAttribute('role')) el.setAttribute('role', 'listitem'); 
+  });
 
   // 4. WEBFLOW FIX: Ensure there's always a block element before each <ul>/<ol>
   // Webflow's rich text engine fails to render lists that don't have a preceding block element
   root.querySelectorAll('ul, ol').forEach(list => {
     const prev = list.previousElementSibling;
-    if (!prev || (prev.tagName !== 'P' && prev.tagName !== 'H1' && prev.tagName !== 'H2' &&
-        prev.tagName !== 'H3' && prev.tagName !== 'H4' && prev.tagName !== 'H5' && prev.tagName !== 'H6' &&
-        prev.tagName !== 'DIV' && prev.tagName !== 'BLOCKQUOTE')) {
-      // Check if there's any previous sibling at all
-      const prevNode = list.previousSibling;
-      if (!prevNode || (prevNode.nodeType === 3 && !prevNode.textContent.trim())) {
-        // No block element before this list — insert an empty <p> as spacer
-        // This is the known Webflow workaround
-      }
+    const isBlockElement = prev && ['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'DIV', 'BLOCKQUOTE'].includes(prev.tagName);
+    
+    if (!isBlockElement) {
+      // No block element before this list — insert an empty <p> as spacer
+      // This is a critical requirement for Webflow to render lists correctly
+      const spacer = doc.createElement('p');
+      spacer.innerHTML = '&nbsp;'; // Add non-breaking space so it's not completely empty
+      list.parentNode.insertBefore(spacer, list);
     }
   });
 
-  // 5. WEBFLOW FIX: Unwrap unnecessary <span> inside <li>
-  // Webflow shows blank list items if <li> contains <span> wrappers
+  // 5. WEBFLOW FIX: Unwrap unnecessary wrappers inside <li> and clean attributes
+  // Webflow shows blank list items if <li> contains wrapper elements
   root.querySelectorAll('li').forEach(li => {
-    // If li has a single child that's a span with no meaningful attributes, unwrap it
-    if (li.children.length === 1 && li.children[0].tagName === 'SPAN') {
-      const span = li.children[0];
-      // Only unwrap if span has no class/id/style that matters
-      if (!span.className && !span.id && !span.style.cssText) {
-        li.innerHTML = span.innerHTML;
+    // Remove all style, class, and data attributes from li (Webflow doesn't like them)
+    li.removeAttribute('style');
+    li.removeAttribute('class');
+    li.removeAttribute('dir');
+    li.removeAttribute('aria-level');
+    Array.from(li.attributes).forEach(attr => {
+      if (attr.name.startsWith('data-')) li.removeAttribute(attr.name);
+    });
+    
+    // If li has a single child that's a wrapper element (span, div, p), unwrap it
+    if (li.children.length === 1) {
+      const child = li.children[0];
+      if (['SPAN', 'DIV', 'P'].includes(child.tagName)) {
+        // Only unwrap if the wrapper has no meaningful attributes or nested lists
+        if (!child.className && !child.id && !child.querySelector('ul, ol')) {
+          li.innerHTML = child.innerHTML;
+        }
       }
     }
+    
+    // Remove any empty text nodes and normalize
+    li.normalize();
   });
 
   // 6. WEBFLOW FIX: Remove any <div> wrappers around <ul>/<ol>
@@ -659,6 +697,27 @@ export default function ContentOps() {
     // Let the browser handle the paste natively, then clean up after a tick
     setTimeout(() => {
       if (!editorRef.current) return;
+
+      // AGGRESSIVE PRE-CLEANUP: Strip problematic elements before full sanitization
+      // This catches issues from Google Docs, Word, etc. that survive initial paste
+      editorRef.current.querySelectorAll('ul, ol, li').forEach(el => {
+        // Remove ALL attributes except the tag itself
+        while (el.attributes.length > 0) {
+          el.removeAttribute(el.attributes[0].name);
+        }
+      });
+      
+      // Remove any <div> or <span> wrappers inside <li>
+      editorRef.current.querySelectorAll('li > div, li > span, li > p').forEach(wrapper => {
+        if (wrapper.children.length === 0 || !wrapper.querySelector('ul, ol')) {
+          // It's a simple wrapper, unwrap it by replacing with its children
+          const parent = wrapper.parentNode;
+          while (wrapper.firstChild) {
+            parent.insertBefore(wrapper.firstChild, wrapper);
+          }
+          wrapper.remove();
+        }
+      });
 
       // Apply full Webflow sanitization to pasted content
       const currentHTML = editorRef.current.innerHTML;
