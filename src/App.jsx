@@ -620,68 +620,37 @@ export default function ContentOps() {
   };
 
   // ── Editor click handlers ─────────────────────
-  // ── Paste handler: cleans pasted HTML so lists work in Webflow ──
-  const handleEditorPaste = useCallback((e) => {
-    const clipboardHtml = e.clipboardData?.getData('text/html');
-    if (!clipboardHtml) return; // Let browser handle plain text paste
+  // ── Paste handler: let browser paste normally, then clean up lists for Webflow ──
+  const handleEditorPaste = useCallback(() => {
+    // Let the browser handle the paste natively, then clean up after a tick
+    setTimeout(() => {
+      if (!editorRef.current) return;
 
-    // Only intercept if the paste contains list elements
-    if (!/<(ul|ol|li)/i.test(clipboardHtml)) return;
+      // Clean up all <li> elements: unwrap <span> wrappers
+      editorRef.current.querySelectorAll('li').forEach(li => {
+        // Unwrap single-span children (Chrome/Google Docs/Word artifact)
+        if (li.children.length === 1 && li.children[0].tagName === 'SPAN') {
+          const span = li.children[0];
+          if (!span.className && !span.id) {
+            li.innerHTML = span.innerHTML;
+          }
+        }
+        li.removeAttribute('class');
+        li.removeAttribute('style');
+        li.removeAttribute('dir');
+        li.removeAttribute('aria-level');
+        li.setAttribute('role', 'listitem');
+      });
 
-    e.preventDefault();
+      // Clean ul/ol
+      editorRef.current.querySelectorAll('ul, ol').forEach(list => {
+        list.removeAttribute('class');
+        list.removeAttribute('style');
+        list.setAttribute('role', 'list');
+      });
 
-    // Parse and clean the pasted HTML
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(clipboardHtml, 'text/html');
-    const body = doc.body;
-
-    // Remove Google Docs / Word junk wrappers
-    body.querySelectorAll('meta, style, link, title, o\\:p, xml').forEach(el => el.remove());
-
-    // Unwrap <span> inside <li> (Chrome/Google Docs wraps li content in spans)
-    body.querySelectorAll('li').forEach(li => {
-      // If li has only one child and it's a span with inline styles, unwrap
-      if (li.children.length === 1 && li.children[0].tagName === 'SPAN') {
-        const span = li.children[0];
-        li.innerHTML = span.innerHTML;
-      }
-      // Remove Google Docs class/style attributes from li
-      li.removeAttribute('class');
-      li.removeAttribute('style');
-      li.removeAttribute('dir');
-      li.removeAttribute('aria-level');
-      li.setAttribute('role', 'listitem');
-    });
-
-    // Clean ul/ol
-    body.querySelectorAll('ul, ol').forEach(list => {
-      list.removeAttribute('class');
-      list.removeAttribute('style');
-      list.setAttribute('role', 'list');
-    });
-
-    // Remove div wrappers around lists
-    body.querySelectorAll('div').forEach(div => {
-      const kids = Array.from(div.children);
-      if (kids.length === 1 && (kids[0].tagName === 'UL' || kids[0].tagName === 'OL')) {
-        div.replaceWith(kids[0]);
-      }
-    });
-
-    // Insert cleaned HTML at cursor
-    const sel = window.getSelection();
-    if (sel.rangeCount) {
-      const range = sel.getRangeAt(0);
-      range.deleteContents();
-      const frag = range.createContextualFragment(body.innerHTML);
-      range.insertNode(frag);
-      // Move cursor to end of inserted content
-      range.collapse(false);
-      sel.removeAllRanges();
-      sel.addRange(range);
-    }
-
-    syncFromEditor();
+      syncFromEditor();
+    }, 50);
   }, [syncFromEditor]);
 
   const handleEditorClick = (e) => {
