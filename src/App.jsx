@@ -660,28 +660,10 @@ export default function ContentOps() {
     setTimeout(() => {
       if (!editorRef.current) return;
 
-      // Clean up all <li> elements: unwrap <span> wrappers
-      editorRef.current.querySelectorAll('li').forEach(li => {
-        // Unwrap single-span children (Chrome/Google Docs/Word artifact)
-        if (li.children.length === 1 && li.children[0].tagName === 'SPAN') {
-          const span = li.children[0];
-          if (!span.className && !span.id) {
-            li.innerHTML = span.innerHTML;
-          }
-        }
-        li.removeAttribute('class');
-        li.removeAttribute('style');
-        li.removeAttribute('dir');
-        li.removeAttribute('aria-level');
-        li.setAttribute('role', 'listitem');
-      });
-
-      // Clean ul/ol
-      editorRef.current.querySelectorAll('ul, ol').forEach(list => {
-        list.removeAttribute('class');
-        list.removeAttribute('style');
-        list.setAttribute('role', 'list');
-      });
+      // Apply full Webflow sanitization to pasted content
+      const currentHTML = editorRef.current.innerHTML;
+      const sanitized = sanitizeListHTML(currentHTML);
+      editorRef.current.innerHTML = sanitized;
 
       syncFromEditor();
     }, 50);
