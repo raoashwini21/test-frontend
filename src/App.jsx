@@ -637,128 +637,94 @@ export default function ContentOps() {
   };
 
   // ── Image upload via device ───────────────────
-  // Add this new function to save cursor position before file dialog
-const prepareImageUpload = () => {
-  if (editorRef.current) {
-    editorRef.current.focus();
-    const sel = window.getSelection();
-    if (sel.rangeCount > 0) {
-      const range = sel.getRangeAt(0);
-      const marker = document.createElement('span');
-      marker.id = 'image-insertion-marker';
-      marker.textContent = '📍';
-      marker.style.cssText = 'background: yellow; padding: 2px;';
-      
-      try {
-        range.insertNode(marker);
-      } catch (err) {
-        console.warn('Marker insertion failed:', err);
+  // ── Image upload: marker-based cursor tracking ──
+  const prepareImageUpload = () => {
+    if (editorRef.current) {
+      editorRef.current.focus();
+      const sel = window.getSelection();
+      if (sel.rangeCount > 0) {
+        const range = sel.getRangeAt(0);
+        const marker = document.createElement('span');
+        marker.id = 'image-insertion-marker';
+        marker.textContent = '\u200B'; // zero-width space (invisible)
+        marker.style.cssText = 'font-size:0;line-height:0;';
+        try { range.insertNode(marker); } catch (err) { console.warn('Marker insertion failed:', err); }
       }
     }
-  }
-};
+  };
 
-const handleImageUpload = async (e) => {
-  const file = e.target.files?.[0];
-  if (!file) {
-    // Clean up marker if user cancelled
-    const marker = editorRef.current?.querySelector('#image-insertion-marker');
-    if (marker) marker.remove();
-    return;
-  }
-  if (!file.type.startsWith('image/')) { 
-    const marker = editorRef.current?.querySelector('#image-insertion-marker');
-    if (marker) marker.remove();
-    setStatus({ type: 'error', message: 'Select an image file' }); 
-    return; 
-  }
-  if (file.size > 5 * 1024 * 1024) { 
-    const marker = editorRef.current?.querySelector('#image-insertion-marker');
-    if (marker) marker.remove();
-    setStatus({ type: 'error', message: 'Max 5MB' }); 
-    return; 
-  }
-
-  const preview = URL.createObjectURL(file);
-  setImageAltModal({ 
-    show: true, 
-    src: preview, 
-    currentAlt: '', 
-    index: -1, 
-    isUpload: true, 
-    file, 
-    error: '' 
-  });
-  e.target.value = '';
-};
-
-const insertUploadedImage = async () => {
-  if (!imageAltModal.file || !imageAltModal.currentAlt.trim()) {
-    setImageAltModal(m => ({ ...m, error: 'Alt text required for accessibility & SEO' })); 
-    return;
-  }
-
-  setImageAltModal(m => ({ ...m, error: '' }));
-
-  try {
-    // Convert file to base64 data URL
-    const dataUrl = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = () => reject(new Error('Failed to read file'));
-      reader.readAsDataURL(imageAltModal.file);
-    });
-
-    // Create image element
-    const img = document.createElement('img');
-    img.src = dataUrl;
-    img.alt = imageAltModal.currentAlt.trim();
-    img.loading = 'lazy';
-    img.style.cssText = 'max-width:100%;height:auto;display:block;margin:1rem 0;border-radius:6px';
-
-    if (!editorRef.current) {
-      throw new Error('Editor not available');
+  const handleImageUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) {
+      const marker = editorRef.current?.querySelector('#image-insertion-marker');
+      if (marker) marker.remove();
+      return;
+    }
+    if (!file.type.startsWith('image/')) {
+      const marker = editorRef.current?.querySelector('#image-insertion-marker');
+      if (marker) marker.remove();
+      setStatus({ type: 'error', message: 'Select an image file' }); return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      const marker = editorRef.current?.querySelector('#image-insertion-marker');
+      if (marker) marker.remove();
+      setStatus({ type: 'error', message: 'Max 5MB' }); return;
     }
 
-    // Find and replace the marker
-    const marker = editorRef.current.querySelector('#image-insertion-marker');
-    if (marker) {
-      marker.parentNode.replaceChild(img, marker);
-    } else {
-      // No marker found - append to end
-      editorRef.current.appendChild(img);
+    const preview = URL.createObjectURL(file);
+    setImageAltModal({ show: true, src: preview, currentAlt: '', index: -1, isUpload: true, file, error: '' });
+    e.target.value = '';
+  };
+
+  const insertUploadedImage = async () => {
+    if (!imageAltModal.file || !imageAltModal.currentAlt.trim()) {
+      setImageAltModal(m => ({ ...m, error: 'Alt text required for accessibility & SEO' })); return;
     }
 
-    // Force immediate sync
-    const newContent = editorRef.current.innerHTML;
-    liveContentRef.current = newContent;
-    setEditedContent(newContent);
+    setImageAltModal(m => ({ ...m, error: '' }));
 
-    URL.revokeObjectURL(imageAltModal.src);
-    setImageAltModal({ 
-      show: false, 
-      src: '', 
-      currentAlt: '', 
-      index: -1, 
-      isUpload: false, 
-      file: null, 
-      error: '' 
-    });
-    setStatus({ type: 'success', message: 'Image inserted!' });
-    setTimeout(() => setStatus({ type: '', message: '' }), 2000);
-  } catch (err) {
-    console.error('Image insertion error:', err);
-    setImageAltModal(m => ({ ...m, error: err.message || 'Failed to insert image' }));
-    
-    // Clean up marker if it still exists
-    const marker = editorRef.current?.querySelector('#image-insertion-marker');
-    if (marker) marker.remove();
-  }
-};
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error('Failed to read file'));
+        reader.readAsDataURL(imageAltModal.file);
+      });
 
+      const img = document.createElement('img');
+      img.src = dataUrl;
+      img.alt = imageAltModal.currentAlt.trim();
+      img.loading = 'lazy';
+      img.style.cssText = 'max-width:100%;height:auto;display:block;margin:1rem 0;border-radius:6px';
 
+      if (!editorRef.current) throw new Error('Editor not available');
 
-  
+      // Find and replace the marker with the image
+      const marker = editorRef.current.querySelector('#image-insertion-marker');
+      if (marker) {
+        marker.parentNode.replaceChild(img, marker);
+      } else {
+        // No marker — append to end
+        editorRef.current.appendChild(img);
+      }
+
+      // Force immediate sync
+      const newContent = editorRef.current.innerHTML;
+      liveContentRef.current = newContent;
+      setEditedContent(newContent);
+
+      URL.revokeObjectURL(imageAltModal.src);
+      setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isUpload: false, file: null, error: '' });
+      setStatus({ type: 'success', message: 'Image inserted!' });
+      setTimeout(() => setStatus({ type: '', message: '' }), 2000);
+    } catch (err) {
+      console.error('Image insertion error:', err);
+      setImageAltModal(m => ({ ...m, error: err.message || 'Failed to insert image' }));
+      const marker = editorRef.current?.querySelector('#image-insertion-marker');
+      if (marker) marker.remove();
+    }
+  };
+
   const updateImageAlt = () => {
     if (imageAltModal.isUpload) { insertUploadedImage(); return; }
     const imgs = editorRef.current?.querySelectorAll('img');
@@ -1296,7 +1262,16 @@ const insertUploadedImage = async () => {
                   <button onClick={openLinkModal} className="p-2 rounded hover:bg-gray-200 text-gray-700" title="Link"><Link2 className="w-4 h-4" /></button>
 
                   <input type="file" accept="image/*" id="img-upload" className="hidden" onChange={handleImageUpload} />
-                  <label htmlFor="img-upload" className="p-2 rounded hover:bg-gray-200 text-gray-700 cursor-pointer" title="Upload image">
+                  <label
+                    className="p-2 rounded hover:bg-gray-200 text-gray-700 cursor-pointer"
+                    title="Upload image"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      prepareImageUpload();
+                      // Small delay so marker is placed before file dialog steals focus
+                      setTimeout(() => document.getElementById('img-upload')?.click(), 50);
+                    }}
+                  >
                     <ImagePlus className="w-4 h-4" />
                   </label>
                   <div className="w-px h-6 bg-gray-300 mx-1" />
@@ -1390,7 +1365,7 @@ const insertUploadedImage = async () => {
 
       {imageAltModal.show && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999]"
-          onClick={() => { if (imageAltModal.isUpload && imageAltModal.src) URL.revokeObjectURL(imageAltModal.src); setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isUpload: false, file: null, error: '' }); }}>
+          onClick={() => { if (imageAltModal.isUpload) { const m = editorRef.current?.querySelector('#image-insertion-marker'); if (m) m.remove(); if (imageAltModal.src) URL.revokeObjectURL(imageAltModal.src); } setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isUpload: false, file: null, error: '' }); }}>
           <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4 space-y-3" onClick={e => e.stopPropagation()}>
             <h3 className="text-lg font-bold">{imageAltModal.isUpload ? 'Add Alt Text' : 'Edit Image'}</h3>
             <img src={imageAltModal.src} alt="" className="w-full max-h-48 object-contain rounded-lg bg-gray-100" />
@@ -1408,7 +1383,7 @@ const insertUploadedImage = async () => {
                 {imageAltModal.isUpload ? 'Upload & Insert' : 'Save'}
               </button>
               {!imageAltModal.isUpload && <button onClick={deleteImage} className="flex-1 bg-red-500 text-white py-2 rounded-lg text-sm">Delete</button>}
-              <button onClick={() => { if (imageAltModal.isUpload && imageAltModal.src) URL.revokeObjectURL(imageAltModal.src); setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isUpload: false, file: null, error: '' }); }}
+              <button onClick={() => { if (imageAltModal.isUpload) { const m = editorRef.current?.querySelector('#image-insertion-marker'); if (m) m.remove(); if (imageAltModal.src) URL.revokeObjectURL(imageAltModal.src); } setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isUpload: false, file: null, error: '' }); }}
                 className="flex-1 bg-gray-100 py-2 rounded-lg text-sm">Cancel</button>
             </div>
           </div>
