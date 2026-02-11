@@ -861,10 +861,10 @@ export default function ContentOps() {
 
   const testConnection = async () => {
     setLoading(true);
-    setStatus({ type: 'info', message: 'Testing connection...' });
+    setStatus({ type: 'info', message: 'Testing connection (may take a moment if server is waking up)...' });
     try {
       const ctrl = new AbortController();
-      setTimeout(() => ctrl.abort(), 15000);
+      setTimeout(() => ctrl.abort(), 45000);
       const r = await fetch(`${BACKEND_URL}/api/webflow?collectionId=${config.collectionId}`, {
         headers: { 'Authorization': `Bearer ${config.webflowKey}` }, signal: ctrl.signal
       });
@@ -881,7 +881,7 @@ export default function ContentOps() {
     setStatus({ type: 'info', message: 'Quick loading...' });
     try {
       const ctrl = new AbortController();
-      setTimeout(() => ctrl.abort(), 30000);
+      setTimeout(() => ctrl.abort(), 60000);
       const r = await fetch(`${BACKEND_URL}/api/webflow?collectionId=${config.collectionId}`, {
         headers: { 'Authorization': `Bearer ${config.webflowKey}` }, signal: ctrl.signal
       });
