@@ -379,6 +379,40 @@ const sanitizeListHTML = (html) => {
   const doc = parser.parseFromString(`<div>${html}</div>`, 'text/html');
   const root = doc.body.firstChild;
 
+  // 0. WEBFLOW FIX: Flatten nested lists (Webflow doesn't support nested ul/ol in rich text)
+  // Convert: <ul><li>Parent<ul><li>Child</li></ul></li></ul>
+  // Into:    <ul><li>Parent</li><li>— Child</li></ul>
+  // Repeat until no more nesting exists
+  let maxPasses = 5;
+  while (root.querySelector('li ul, li ol') && maxPasses-- > 0) {
+    root.querySelectorAll('li > ul, li > ol').forEach(nestedList => {
+      const parentLi = nestedList.parentElement;
+      const parentList = parentLi.parentElement; // the outer ul/ol
+
+      // Extract nested items and insert them after the parent <li>
+      const nestedItems = Array.from(nestedList.querySelectorAll(':scope > li'));
+      let insertAfter = parentLi;
+
+      nestedItems.forEach(nestedLi => {
+        // Prefix with "— " to show it was a sub-item
+        const text = nestedLi.innerHTML.trim();
+        if (!text.startsWith('—') && !text.startsWith('–') && !text.startsWith('-')) {
+          nestedLi.innerHTML = '— ' + text;
+        }
+        // Insert after the parent li in the parent list
+        if (insertAfter.nextSibling) {
+          parentList.insertBefore(nestedLi, insertAfter.nextSibling);
+        } else {
+          parentList.appendChild(nestedLi);
+        }
+        insertAfter = nestedLi;
+      });
+
+      // Remove the now-empty nested list
+      nestedList.remove();
+    });
+  }
+
   // 1. Fix orphaned <li> not inside ul/ol
   const orphans = Array.from(root.querySelectorAll('li')).filter(li => {
     const p = li.parentElement;
