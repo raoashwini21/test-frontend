@@ -637,37 +637,51 @@ export default function ContentOps() {
   };
 
   // ── Image upload via device ───────────────────
-  // ── Image upload: marker-based cursor tracking ──
+  // Uses a direct DOM node index reference (not a marker span) to track
+  // where the cursor was. This survives React re-renders because we store
+  // the child index, not a DOM reference that can get detached.
+  const imageInsertIndexRef = useRef(-1);
+
   const prepareImageUpload = () => {
-    if (editorRef.current) {
-      editorRef.current.focus();
-      const sel = window.getSelection();
-      if (sel.rangeCount > 0) {
-        const range = sel.getRangeAt(0);
-        const marker = document.createElement('span');
-        marker.id = 'image-insertion-marker';
-        marker.textContent = '\u200B'; // zero-width space (invisible)
-        marker.style.cssText = 'font-size:0;line-height:0;';
-        try { range.insertNode(marker); } catch (err) { console.warn('Marker insertion failed:', err); }
-      }
+    imageInsertIndexRef.current = -1;
+    if (!editorRef.current) return;
+
+    const sel = window.getSelection();
+    if (!sel.rangeCount) return;
+
+    const range = sel.getRangeAt(0);
+
+    // Verify cursor is inside the editor
+    let node = range.startContainer;
+    let insideEditor = false;
+    while (node) {
+      if (node === editorRef.current) { insideEditor = true; break; }
+      node = node.parentNode;
+    }
+    if (!insideEditor) return;
+
+    // Walk up to find the direct child of editor that contains the cursor
+    node = range.startContainer;
+    while (node && node.parentNode !== editorRef.current) {
+      node = node.parentNode;
+    }
+
+    if (node && node.parentNode === editorRef.current) {
+      // Store the index of this child node (survives React re-renders)
+      const children = Array.from(editorRef.current.childNodes);
+      imageInsertIndexRef.current = children.indexOf(node);
     }
   };
 
   const handleImageUpload = async (e) => {
     const file = e.target.files?.[0];
-    if (!file) {
-      const marker = editorRef.current?.querySelector('#image-insertion-marker');
-      if (marker) marker.remove();
-      return;
-    }
+    if (!file) { imageInsertIndexRef.current = -1; return; }
     if (!file.type.startsWith('image/')) {
-      const marker = editorRef.current?.querySelector('#image-insertion-marker');
-      if (marker) marker.remove();
+      imageInsertIndexRef.current = -1;
       setStatus({ type: 'error', message: 'Select an image file' }); return;
     }
     if (file.size > 5 * 1024 * 1024) {
-      const marker = editorRef.current?.querySelector('#image-insertion-marker');
-      if (marker) marker.remove();
+      imageInsertIndexRef.current = -1;
       setStatus({ type: 'error', message: 'Max 5MB' }); return;
     }
 
@@ -699,14 +713,23 @@ export default function ContentOps() {
 
       if (!editorRef.current) throw new Error('Editor not available');
 
-      // Find and replace the marker with the image
-      const marker = editorRef.current.querySelector('#image-insertion-marker');
-      if (marker) {
-        marker.parentNode.replaceChild(img, marker);
+      const idx = imageInsertIndexRef.current;
+      const children = editorRef.current.childNodes;
+
+      if (idx >= 0 && idx < children.length) {
+        // Insert AFTER the child node where cursor was
+        const refNode = children[idx];
+        if (refNode.nextSibling) {
+          editorRef.current.insertBefore(img, refNode.nextSibling);
+        } else {
+          editorRef.current.appendChild(img);
+        }
       } else {
-        // No marker — append to end
+        // No valid position saved — append to end
         editorRef.current.appendChild(img);
       }
+
+      imageInsertIndexRef.current = -1;
 
       // Force immediate sync
       const newContent = editorRef.current.innerHTML;
@@ -719,9 +742,8 @@ export default function ContentOps() {
       setTimeout(() => setStatus({ type: '', message: '' }), 2000);
     } catch (err) {
       console.error('Image insertion error:', err);
+      imageInsertIndexRef.current = -1;
       setImageAltModal(m => ({ ...m, error: err.message || 'Failed to insert image' }));
-      const marker = editorRef.current?.querySelector('#image-insertion-marker');
-      if (marker) marker.remove();
     }
   };
 
