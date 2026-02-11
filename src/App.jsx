@@ -36,7 +36,6 @@ const KNOWN_BRAND_CONFUSIONS = [
       }
     ]
   }
-  // ... other brand confusions truncated for brevity
 ];
 
 const detectBrandContext = (title, content) => {
@@ -160,19 +159,16 @@ const sanitizeListHTML = (html) => {
   const root = doc.body.firstChild;
 
   // STEP 1: Collect all nested list items recursively into a flat structure
-  // This is the most reliable way to handle arbitrary nesting depth
   const flattenNestedLists = (listElement) => {
     const items = [];
     
     const processNode = (node, depth = 0) => {
       if (node.nodeType === 1 && node.tagName === 'LI') {
-        // Extract text content, removing any nested lists temporarily
         const clone = node.cloneNode(true);
         Array.from(clone.querySelectorAll('ul, ol')).forEach(list => list.remove());
         
         let text = clone.innerHTML.trim();
         
-        // Add indentation indicator for nested items
         if (depth > 0) {
           const prefix = '→ '.repeat(depth);
           if (!text.startsWith('→') && !text.startsWith('•') && !text.startsWith('-')) {
@@ -182,7 +178,6 @@ const sanitizeListHTML = (html) => {
         
         items.push(text);
         
-        // Process any nested lists
         const childLists = Array.from(node.querySelectorAll(':scope > ul, :scope > ol'));
         childLists.forEach(childList => {
           const childItems = Array.from(childList.querySelectorAll(':scope > li'));
@@ -202,7 +197,6 @@ const sanitizeListHTML = (html) => {
   // STEP 2: Replace all lists with flattened versions
   const allLists = Array.from(root.querySelectorAll('ul, ol'));
   allLists.forEach(list => {
-    // Skip if this list is inside another list (will be processed by parent)
     let parent = list.parentElement;
     let isNested = false;
     while (parent && parent !== root) {
@@ -214,10 +208,8 @@ const sanitizeListHTML = (html) => {
     }
     
     if (!isNested) {
-      // This is a top-level list, flatten it completely
       const items = flattenNestedLists(list);
       
-      // Create a new clean list
       const newList = doc.createElement(list.tagName.toLowerCase());
       newList.setAttribute('role', 'list');
       
@@ -232,7 +224,7 @@ const sanitizeListHTML = (html) => {
     }
   });
 
-  // STEP 3: Clean up any remaining nested lists (safety check)
+  // STEP 3: Clean up any remaining nested lists
   let safetyCounter = 0;
   while (root.querySelector('li ul, li ol') && safetyCounter++ < 20) {
     root.querySelectorAll('li ul, li ol').forEach(nestedList => {
@@ -244,7 +236,6 @@ const sanitizeListHTML = (html) => {
   root.querySelectorAll('li').forEach(li => {
     const parent = li.parentElement;
     if (parent && parent.tagName !== 'UL' && parent.tagName !== 'OL') {
-      // This li is not in a list, wrap it
       const ul = doc.createElement('ul');
       ul.setAttribute('role', 'list');
       li.setAttribute('role', 'listitem');
@@ -265,25 +256,20 @@ const sanitizeListHTML = (html) => {
     }
   });
 
-  // STEP 6: Clean all attributes from lists and list items
+  // STEP 6: Clean all attributes
   root.querySelectorAll('ul, ol').forEach(el => {
-    // Remove all attributes
     while (el.attributes.length > 0) {
       el.removeAttribute(el.attributes[0].name);
     }
-    // Add back only what's needed
     el.setAttribute('role', 'list');
   });
 
   root.querySelectorAll('li').forEach(li => {
-    // Remove all attributes
     while (li.attributes.length > 0) {
       li.removeAttribute(li.attributes[0].name);
     }
-    // Add back only what's needed
     li.setAttribute('role', 'listitem');
     
-    // Remove any wrapper elements inside li
     if (li.children.length === 1) {
       const child = li.children[0];
       if (['SPAN', 'DIV', 'P'].includes(child.tagName) && !child.querySelector('ul, ol, img, a')) {
@@ -448,36 +434,29 @@ export default function ContentOps() {
     execCmd(type === 'bullet' ? 'insertUnorderedList' : 'insertOrderedList');
   };
 
-  // FOOLPROOF PASTE HANDLER - directly sanitize on paste
   const handleEditorPaste = useCallback((e) => {
-    e.preventDefault(); // Prevent default paste
+    e.preventDefault();
     
-    // Get pasted content as HTML
     const html = e.clipboardData.getData('text/html') || e.clipboardData.getData('text/plain');
     
     if (!html) return;
     
-    // Sanitize immediately
     const cleaned = sanitizeListHTML(html);
     
-    // Insert at cursor position
     const sel = window.getSelection();
     if (sel.rangeCount > 0) {
       const range = sel.getRangeAt(0);
       range.deleteContents();
       
-      // Create a temporary div to parse the cleaned HTML
       const temp = document.createElement('div');
       temp.innerHTML = cleaned;
       
-      // Insert each child node
       const frag = document.createDocumentFragment();
       while (temp.firstChild) {
         frag.appendChild(temp.firstChild);
       }
       range.insertNode(frag);
       
-      // Move cursor to end
       range.collapse(false);
       sel.removeAllRanges();
       sel.addRange(range);
@@ -945,10 +924,10 @@ export default function ContentOps() {
     }
   };
 
-  // UI rendering code continues... (truncated for length - same as before)
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <style>{EDITOR_STYLES}</style>
+
       <nav className="bg-[#0f172a] border-b border-gray-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
@@ -986,31 +965,217 @@ export default function ContentOps() {
           </div>
         )}
 
-        {/* Rest of UI rendering - dashboard, review, etc. - same as original, just using the new paste handler */}
+        {view === 'setup' && (
+          <div className="max-w-2xl mx-auto">
+            <div className="bg-white rounded-xl p-8 border shadow-sm">
+              <h2 className="text-2xl font-bold mb-6">Configuration</h2>
+              <div className="space-y-4">
+                {[
+                  ['Claude API Key *', 'anthropicKey', 'sk-ant-...'],
+                  ['Brave Search Key *', 'braveKey', 'BSA...'],
+                  ['Webflow Token *', 'webflowKey', 'Token'],
+                  ['Collection ID *', 'collectionId', 'From Webflow CMS'],
+                  ['Site ID (for image uploads)', 'siteId', 'From Webflow site settings']
+                ].map(([label, key, ph]) => (
+                  <div key={key}>
+                    <label className="block text-sm font-semibold mb-1">{label}</label>
+                    <input
+                      type={['collectionId', 'siteId'].includes(key) ? 'text' : 'password'}
+                      value={config[key]}
+                      onChange={e => setConfig({...config, [key]: e.target.value})}
+                      placeholder={ph}
+                      className="w-full bg-gray-50 border rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#0ea5e9]"
+                    />
+                  </div>
+                ))}
+                <p className="text-xs text-gray-400">
+                  Site ID auto-detects when you load blogs. Only enter manually if auto-detection fails.
+                  {detectedSiteId && <span className="text-green-600 font-medium ml-1">Auto-detected: {detectedSiteId}</span>}
+                </p>
+                <button onClick={saveConfig} disabled={loading} className="w-full bg-[#0ea5e9] text-white py-3 rounded-lg font-semibold hover:bg-[#0284c7] disabled:opacity-50">
+                  {loading ? 'Saving...' : 'Save & Connect'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {view === 'dashboard' && (
+          <div>
+            <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+              <h2 className="text-2xl font-bold">Blog Posts</h2>
+              <div className="flex items-center gap-2 flex-wrap">
+                <button onClick={() => setShowGscModal(true)} className="bg-purple-600 text-white px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-purple-700 text-sm font-semibold">
+                  <TrendingUp className="w-4 h-4" />
+                  {gscData ? `GSC: ${gscData.blogsCount} blogs` : 'Upload GSC'}
+                </button>
+                <button onClick={testConnection} disabled={loading} className="bg-blue-500 text-white px-3 py-2 rounded-lg text-sm hover:bg-blue-600"><Zap className="w-4 h-4 inline mr-1" />Test</button>
+                <button onClick={fetchBlogsQuick} disabled={loading} className="bg-green-500 text-white px-3 py-2 rounded-lg text-sm hover:bg-green-600">Quick Load</button>
+                <button onClick={() => fetchBlogs(true)} disabled={loading} className="bg-white text-gray-700 px-3 py-2 rounded-lg text-sm border hover:bg-gray-50">
+                  <RefreshCw className={`w-4 h-4 inline mr-1 ${loading ? 'animate-spin' : ''}`} />Load All
+                </button>
+              </div>
+            </div>
+
+            {loading ? (
+              <div className="text-center py-12"><Loader className="w-10 h-10 text-[#0ea5e9] animate-spin mx-auto mb-3" /><p className="text-gray-500">Loading...</p></div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {blogs.map(blog => {
+                  const gsc = getGscKeywordsForBlog(blog);
+                  return (
+                    <div key={blog.id} className="bg-white rounded-xl p-5 border hover:shadow-md transition-shadow">
+                      <h3 className="font-semibold text-[#0f172a] mb-2 line-clamp-2 text-sm">{blog.fieldData.name}</h3>
+                      <p className="text-xs text-gray-500 mb-3 line-clamp-2">{blog.fieldData['post-summary'] || 'No description'}</p>
+                      {gsc && (
+                        <div className="mb-3 space-y-1">
+                          <div className="flex items-center gap-1 text-xs bg-purple-50 border border-purple-200 rounded px-2 py-1">
+                            <TrendingUp className="w-3 h-3 text-purple-600" />
+                            <span className="text-purple-700 font-medium">{Math.round(gsc.clicks)} clicks &bull; Pos {gsc.position.toFixed(1)}</span>
+                          </div>
+                          {gsc.hasKeywords && <div className="text-xs text-gray-500 bg-gray-50 rounded px-2 py-1 truncate">
+                            {gsc.keywords.slice(0, 3).map(k => k.query).join(', ')}
+                          </div>}
+                        </div>
+                      )}
+                      <button onClick={() => analyzeBlog(blog)} disabled={loading} className="w-full bg-[#0ea5e9] text-white px-3 py-2 rounded-lg text-sm font-semibold hover:bg-[#0284c7] disabled:opacity-50">
+                        {loading && selectedBlog?.id === blog.id ? <Loader className="w-4 h-4 animate-spin mx-auto" /> : 'Smart Check'}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
         {view === 'review' && result && (
           <div className="space-y-4">
-            <div className="bg-white rounded-lg border shadow-sm">
-              <div className="flex items-center gap-1 p-2 border-b bg-gray-50 rounded-t-lg flex-wrap sticky top-0 z-30 shadow-sm">
-                <button onClick={() => execCmd('bold')} className="p-2 rounded hover:bg-gray-200 text-gray-700" title="Bold"><Bold className="w-4 h-4" /></button>
-                <button onClick={() => execCmd('italic')} className="p-2 rounded hover:bg-gray-200 text-gray-700" title="Italic"><Italic className="w-4 h-4" /></button>
-                <div className="w-px h-6 bg-gray-300 mx-1" />
-                <button onClick={() => insertListCmd('bullet')} className="p-2 rounded hover:bg-gray-200 text-gray-700" title="Bullet list"><List className="w-4 h-4" /></button>
-                <button onClick={() => insertListCmd('number')} className="p-2 rounded hover:bg-gray-200 text-gray-700" title="Numbered list"><ListOrdered className="w-4 h-4" /></button>
+            {result.gscKeywordsUsed?.length > 0 && (
+              <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+                <p className="text-sm font-semibold text-purple-800 mb-2">Optimized with {result.gscKeywordsUsed.length} GSC keywords</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {result.gscKeywordsUsed.slice(0, 10).map((kw, i) => (
+                    <span key={i} className="text-xs bg-white px-2 py-0.5 rounded border border-purple-200 text-purple-700">{kw.query}</span>
+                  ))}
+                </div>
               </div>
+            )}
 
-              <div
-                ref={editorRef}
-                className="co-editor"
-                contentEditable
-                suppressContentEditableWarning
-                onInput={syncFromEditor}
-                onClick={handleEditorClick}
-                onKeyUp={trackCursorPosition}
-                onMouseUp={trackCursorPosition}
-                onPaste={handleEditorPaste}
-                style={{ minHeight: 600 }}
-              />
+            <div className="bg-white rounded-lg border p-3 flex items-center gap-4 flex-wrap text-sm">
+              <span className="text-gray-600">{result.searchesUsed} searches</span>
+              <span className="text-gray-600">{result.duration}s</span>
+              <span className="bg-blue-100 text-blue-800 px-2 py-0.5 rounded text-xs font-medium">{result.blogType}</span>
+              {result.widgetsProtected > 0 && <span className="bg-amber-100 text-amber-800 px-2 py-0.5 rounded text-xs font-medium">{result.widgetsProtected} widgets protected</span>}
+              {highlightedData && <span className="bg-sky-100 text-sky-800 px-2 py-0.5 rounded text-xs font-medium">{highlightedData.changesCount} changes</span>}
+              {result.tldrAdded && <span className="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded text-xs font-medium">TL;DR added</span>}
+              {result.fromCache && <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded text-xs">cached</span>}
             </div>
+
+            <div className="bg-white rounded-lg border p-4 space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Blog Title</label>
+                <input value={blogTitle} onChange={e => setBlogTitle(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0ea5e9]" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Meta Description <span className="text-gray-400 normal-case font-normal">({metaFieldName})</span></label>
+                <textarea value={metaDescription} onChange={e => setMetaDescription(e.target.value)} rows={2} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0ea5e9] resize-none" />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {[['edit', 'Edit', Eye], ['preview', 'Preview Changes', Search], ['html', 'HTML Source', Code]].map(([mode, label, Icon]) => (
+                <button key={mode} onClick={() => {
+                    if (mode === 'html') { switchToHtmlMode(); }
+                    else { if (editMode === 'edit') flushEditorContent(); setEditMode(mode); }
+                  }}
+                  className={`px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-1.5 transition-colors ${editMode === mode ? 'bg-[#0ea5e9] text-white' : 'bg-white border text-gray-600 hover:bg-gray-50'}`}>
+                  <Icon className="w-4 h-4" />{label}
+                </button>
+              ))}
+              {editMode === 'preview' && (
+                <label className="flex items-center gap-2 ml-4 text-sm text-gray-600 cursor-pointer select-none">
+                  <input type="checkbox" checked={showHighlights} onChange={e => setShowHighlights(e.target.checked)} className="rounded" />
+                  Show highlights
+                </label>
+              )}
+            </div>
+
+            {editMode === 'edit' && (
+              <div className="bg-white rounded-lg border shadow-sm">
+                <div className="flex items-center gap-1 p-2 border-b bg-gray-50 rounded-t-lg flex-wrap sticky top-0 z-30 shadow-sm">
+                  <button onClick={() => execCmd('bold')} className="p-2 rounded hover:bg-gray-200 text-gray-700" title="Bold"><Bold className="w-4 h-4" /></button>
+                  <button onClick={() => execCmd('italic')} className="p-2 rounded hover:bg-gray-200 text-gray-700" title="Italic"><Italic className="w-4 h-4" /></button>
+                  <div className="w-px h-6 bg-gray-300 mx-1" />
+
+                  <div className="relative">
+                    <button onClick={() => setShowHeadingMenu(!showHeadingMenu)} className="px-2 py-1.5 rounded hover:bg-gray-200 text-gray-700 text-sm font-medium flex items-center gap-1">
+                      <Type className="w-4 h-4" />Heading<ChevronDown className="w-3 h-3" />
+                    </button>
+                    {showHeadingMenu && (
+                      <div className="absolute top-full left-0 mt-1 bg-white border rounded-lg shadow-lg z-50 py-1 min-w-[120px]">
+                        {[2, 3, 4].map(l => (
+                          <button key={l} onClick={() => formatHeading(l)} className="block w-full text-left px-3 py-1.5 hover:bg-gray-100 text-sm">
+                            <span className="font-semibold">H{l}</span> <span className="text-gray-400">Heading {l}</span>
+                          </button>
+                        ))}
+                        <button onClick={() => { execCmd('formatBlock', 'p'); setShowHeadingMenu(false); }} className="block w-full text-left px-3 py-1.5 hover:bg-gray-100 text-sm text-gray-600">Paragraph</button>
+                      </div>
+                    )}
+                  </div>
+                  <div className="w-px h-6 bg-gray-300 mx-1" />
+
+                  <button onClick={() => insertListCmd('bullet')} className="p-2 rounded hover:bg-gray-200 text-gray-700" title="Bullet list"><List className="w-4 h-4" /></button>
+                  <button onClick={() => insertListCmd('number')} className="p-2 rounded hover:bg-gray-200 text-gray-700" title="Numbered list"><ListOrdered className="w-4 h-4" /></button>
+                  <div className="w-px h-6 bg-gray-300 mx-1" />
+
+                  <button onClick={openLinkModal} className="p-2 rounded hover:bg-gray-200 text-gray-700" title="Link"><Link2 className="w-4 h-4" /></button>
+
+                  <input type="file" accept="image/*" id="img-upload" className="hidden" onChange={handleImageUpload} />
+                  <label htmlFor="img-upload" className="p-2 rounded hover:bg-gray-200 text-gray-700 cursor-pointer" title="Upload image">
+                    <ImagePlus className="w-4 h-4" />
+                  </label>
+                  <div className="w-px h-6 bg-gray-300 mx-1" />
+
+                  <button onClick={() => execCmd('undo')} className="p-2 rounded hover:bg-gray-200 text-gray-700" title="Undo"><Undo2 className="w-4 h-4" /></button>
+                </div>
+
+                <div
+                  ref={editorRef}
+                  className="co-editor"
+                  contentEditable
+                  suppressContentEditableWarning
+                  onInput={syncFromEditor}
+                  onClick={handleEditorClick}
+                  onKeyUp={trackCursorPosition}
+                  onMouseUp={trackCursorPosition}
+                  onPaste={handleEditorPaste}
+                  style={{ minHeight: 600 }}
+                />
+              </div>
+            )}
+
+            {editMode === 'preview' && (
+              <div className="bg-white rounded-lg border shadow-sm">
+                <div className="co-editor" style={{ minHeight: 400 }}
+                  dangerouslySetInnerHTML={{ __html: showHighlights && highlightedData ? highlightedData.html : editedContent }} />
+              </div>
+            )}
+
+            {editMode === 'html' && (
+              <div className="space-y-3">
+                <textarea
+                  value={htmlSource}
+                  onChange={e => setHtmlSource(e.target.value)}
+                  className="w-full font-mono text-xs bg-gray-900 text-green-400 border rounded-lg p-4 focus:outline-none focus:ring-2 focus:ring-[#0ea5e9]"
+                  style={{ minHeight: 500, resize: 'vertical', lineHeight: 1.5, tabSize: 2 }}
+                  spellCheck={false}
+                />
+                <button onClick={applyHtmlSource} className="bg-[#0ea5e9] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#0284c7]">
+                  Apply HTML Changes
+                </button>
+              </div>
+            )}
 
             <div className="flex items-center gap-3 flex-wrap bg-white rounded-lg border p-4">
               <button onClick={publishToWebflow} disabled={loading} className="bg-green-600 text-white px-5 py-2.5 rounded-lg font-semibold hover:bg-green-700 disabled:opacity-50 flex items-center gap-2">
@@ -1020,10 +1185,96 @@ export default function ContentOps() {
               <button onClick={copyHTMLToClipboard} className={`px-5 py-2.5 rounded-lg font-semibold flex items-center gap-2 border ${copied ? 'bg-green-50 border-green-300 text-green-700' : 'bg-white text-gray-700 hover:bg-gray-50'}`}>
                 <Copy className="w-4 h-4" />{copied ? 'Copied!' : 'Copy HTML'}
               </button>
+              <button onClick={() => { setView('dashboard'); setResult(null); setSelectedBlog(null); setHighlightedData(null); }}
+                className="bg-white text-gray-500 px-4 py-2.5 rounded-lg border hover:bg-gray-50 text-sm">Back</button>
             </div>
           </div>
         )}
+
+        {view === 'success' && (
+          <div className="max-w-md mx-auto text-center py-16">
+            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4"><CheckCircle className="w-10 h-10 text-green-600" /></div>
+            <h2 className="text-2xl font-bold mb-2">Published!</h2>
+            <p className="text-gray-500 mb-6">Content updated on Webflow</p>
+            <button onClick={() => { setView('dashboard'); setResult(null); setSelectedBlog(null); setHighlightedData(null); }}
+              className="bg-[#0ea5e9] text-white px-6 py-3 rounded-lg font-semibold hover:bg-[#0284c7]">Back to Dashboard</button>
+          </div>
+        )}
       </div>
+
+      {showLinkModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999]" onClick={() => setShowLinkModal(false)}>
+          <div className="bg-white rounded-xl p-6 max-w-sm w-full mx-4 space-y-3" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold">{editingLink ? 'Edit Link' : 'Insert Link'}</h3>
+            <div>
+              <label className="block text-xs font-semibold mb-1">URL</label>
+              <input value={linkUrl} onChange={e => setLinkUrl(e.target.value)} placeholder="https://..." className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0ea5e9]" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold mb-1">Text (optional)</label>
+              <input value={linkText} onChange={e => setLinkText(e.target.value)} placeholder="Link text" className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0ea5e9]" />
+            </div>
+            <div className="flex gap-2">
+              <button onClick={applyLink} className="flex-1 bg-[#0ea5e9] text-white py-2 rounded-lg font-semibold text-sm">Apply</button>
+              <button onClick={() => setShowLinkModal(false)} className="flex-1 bg-gray-100 py-2 rounded-lg text-sm">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {imageAltModal.show && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999]"
+          onClick={() => { if (imageAltModal.isUpload && imageAltModal.src) URL.revokeObjectURL(imageAltModal.src); setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isUpload: false, file: null, error: '' }); }}>
+          <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4 space-y-3" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold">{imageAltModal.isUpload ? 'Add Alt Text' : 'Edit Image'}</h3>
+            <img src={imageAltModal.src} alt="" className="w-full max-h-48 object-contain rounded-lg bg-gray-100" />
+            <div>
+              <label className="block text-xs font-semibold mb-1">Alt Text {imageAltModal.isUpload && <span className="text-red-500">*</span>}</label>
+              <input value={imageAltModal.currentAlt} onChange={e => setImageAltModal({...imageAltModal, currentAlt: e.target.value, error: ''})}
+                placeholder="Describe what's in the image..." className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0ea5e9]" autoFocus />
+            </div>
+            {imageAltModal.error && (
+              <div className="p-2.5 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{imageAltModal.error}</div>
+            )}
+            <div className="flex gap-2">
+              <button onClick={updateImageAlt} disabled={imageAltModal.isUpload && !imageAltModal.currentAlt.trim()}
+                className="flex-1 bg-[#0ea5e9] text-white py-2 rounded-lg font-semibold text-sm disabled:opacity-50">
+                {imageAltModal.isUpload ? 'Upload & Insert' : 'Save'}
+              </button>
+              {!imageAltModal.isUpload && <button onClick={deleteImage} className="flex-1 bg-red-500 text-white py-2 rounded-lg text-sm">Delete</button>}
+              <button onClick={() => { if (imageAltModal.isUpload && imageAltModal.src) URL.revokeObjectURL(imageAltModal.src); setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isUpload: false, file: null, error: '' }); }}
+                className="flex-1 bg-gray-100 py-2 rounded-lg text-sm">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showGscModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999]" onClick={() => setShowGscModal(false)}>
+          <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4 space-y-3" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold">Upload GSC Data</h3>
+            <p className="text-sm text-gray-600">Upload XLSX from Google Search Console (needs Queries + Pages sheets).</p>
+            {gscData && <div className="p-2 bg-green-50 border border-green-200 rounded text-sm text-green-800 font-medium">{gscData.totalMatches} blogs with keywords</div>}
+            <input type="file" accept=".xlsx,.xls" onChange={handleGscUpload} disabled={gscUploading} className="w-full bg-gray-50 border rounded px-3 py-2 text-sm" />
+            <button onClick={() => setShowGscModal(false)} className="w-full bg-gray-100 py-2 rounded-lg font-semibold text-sm">{gscData ? 'Done' : 'Cancel'}</button>
+          </div>
+        </div>
+      )}
+
+      <footer className="bg-[#0f172a] border-t border-gray-800 mt-auto">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex items-center justify-between flex-wrap gap-4">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 bg-[#0ea5e9] rounded flex items-center justify-center"><Sparkles className="w-3.5 h-3.5 text-white" /></div>
+            <span className="text-sm font-semibold text-gray-300">ContentOps</span>
+            <span className="text-xs text-gray-500">by SalesRobot</span>
+          </div>
+          <div className="flex items-center gap-6 text-xs text-gray-500">
+            <span>Brave + Google Search</span>
+            <span>Claude AI</span>
+            <span>Webflow CMS</span>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }
