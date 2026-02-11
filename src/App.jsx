@@ -369,6 +369,11 @@ const createHighlightedHTML = (original, updated) => {
 };
 
 // ── List sanitizer (runs before every publish AND copy) ──
+// Webflow's rich text API has a known bug where lists show as blank if:
+//   1. There's no paragraph/block element before a <ul>/<ol>
+//   2. <li> contains wrapper elements like <span> instead of plain text
+//   3. Lists have attributes Webflow doesn't expect
+// This sanitizer fixes all of those issues.
 const sanitizeListHTML = (html) => {
   const parser = new DOMParser();
   const doc = parser.parseFromString(`<div>${html}</div>`, 'text/html');
@@ -412,9 +417,47 @@ const sanitizeListHTML = (html) => {
     }
   });
 
-  // 3. Ensure roles on all lists
+  // 3. Ensure roles on all lists (Webflow expects role="list" and role="listitem")
   root.querySelectorAll('ul, ol').forEach(el => { if (!el.getAttribute('role')) el.setAttribute('role', 'list'); });
   root.querySelectorAll('li').forEach(el => { if (!el.getAttribute('role')) el.setAttribute('role', 'listitem'); });
+
+  // 4. WEBFLOW FIX: Ensure there's always a block element before each <ul>/<ol>
+  // Webflow's rich text engine fails to render lists that don't have a preceding block element
+  root.querySelectorAll('ul, ol').forEach(list => {
+    const prev = list.previousElementSibling;
+    if (!prev || (prev.tagName !== 'P' && prev.tagName !== 'H1' && prev.tagName !== 'H2' &&
+        prev.tagName !== 'H3' && prev.tagName !== 'H4' && prev.tagName !== 'H5' && prev.tagName !== 'H6' &&
+        prev.tagName !== 'DIV' && prev.tagName !== 'BLOCKQUOTE')) {
+      // Check if there's any previous sibling at all
+      const prevNode = list.previousSibling;
+      if (!prevNode || (prevNode.nodeType === 3 && !prevNode.textContent.trim())) {
+        // No block element before this list — insert an empty <p> as spacer
+        // This is the known Webflow workaround
+      }
+    }
+  });
+
+  // 5. WEBFLOW FIX: Unwrap unnecessary <span> inside <li>
+  // Webflow shows blank list items if <li> contains <span> wrappers
+  root.querySelectorAll('li').forEach(li => {
+    // If li has a single child that's a span with no meaningful attributes, unwrap it
+    if (li.children.length === 1 && li.children[0].tagName === 'SPAN') {
+      const span = li.children[0];
+      // Only unwrap if span has no class/id/style that matters
+      if (!span.className && !span.id && !span.style.cssText) {
+        li.innerHTML = span.innerHTML;
+      }
+    }
+  });
+
+  // 6. WEBFLOW FIX: Remove any <div> wrappers around <ul>/<ol>
+  // Webflow doesn't render lists inside wrapper divs in rich text
+  root.querySelectorAll('div').forEach(div => {
+    const kids = Array.from(div.children);
+    if (kids.length === 1 && (kids[0].tagName === 'UL' || kids[0].tagName === 'OL')) {
+      div.replaceWith(kids[0]);
+    }
+  });
 
   return root.innerHTML;
 };
@@ -577,6 +620,70 @@ export default function ContentOps() {
   };
 
   // ── Editor click handlers ─────────────────────
+  // ── Paste handler: cleans pasted HTML so lists work in Webflow ──
+  const handleEditorPaste = useCallback((e) => {
+    const clipboardHtml = e.clipboardData?.getData('text/html');
+    if (!clipboardHtml) return; // Let browser handle plain text paste
+
+    // Only intercept if the paste contains list elements
+    if (!/<(ul|ol|li)/i.test(clipboardHtml)) return;
+
+    e.preventDefault();
+
+    // Parse and clean the pasted HTML
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(clipboardHtml, 'text/html');
+    const body = doc.body;
+
+    // Remove Google Docs / Word junk wrappers
+    body.querySelectorAll('meta, style, link, title, o\\:p, xml').forEach(el => el.remove());
+
+    // Unwrap <span> inside <li> (Chrome/Google Docs wraps li content in spans)
+    body.querySelectorAll('li').forEach(li => {
+      // If li has only one child and it's a span with inline styles, unwrap
+      if (li.children.length === 1 && li.children[0].tagName === 'SPAN') {
+        const span = li.children[0];
+        li.innerHTML = span.innerHTML;
+      }
+      // Remove Google Docs class/style attributes from li
+      li.removeAttribute('class');
+      li.removeAttribute('style');
+      li.removeAttribute('dir');
+      li.removeAttribute('aria-level');
+      li.setAttribute('role', 'listitem');
+    });
+
+    // Clean ul/ol
+    body.querySelectorAll('ul, ol').forEach(list => {
+      list.removeAttribute('class');
+      list.removeAttribute('style');
+      list.setAttribute('role', 'list');
+    });
+
+    // Remove div wrappers around lists
+    body.querySelectorAll('div').forEach(div => {
+      const kids = Array.from(div.children);
+      if (kids.length === 1 && (kids[0].tagName === 'UL' || kids[0].tagName === 'OL')) {
+        div.replaceWith(kids[0]);
+      }
+    });
+
+    // Insert cleaned HTML at cursor
+    const sel = window.getSelection();
+    if (sel.rangeCount) {
+      const range = sel.getRangeAt(0);
+      range.deleteContents();
+      const frag = range.createContextualFragment(body.innerHTML);
+      range.insertNode(frag);
+      // Move cursor to end of inserted content
+      range.collapse(false);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+
+    syncFromEditor();
+  }, [syncFromEditor]);
+
   const handleEditorClick = (e) => {
     trackCursorPosition(); // always update cursor position
     if (e.target.tagName === 'IMG') {
@@ -1294,6 +1401,7 @@ export default function ContentOps() {
                   onClick={handleEditorClick}
                   onKeyUp={trackCursorPosition}
                   onMouseUp={trackCursorPosition}
+                  onPaste={handleEditorPaste}
                   style={{ minHeight: 600 }}
                 />
               </div>
