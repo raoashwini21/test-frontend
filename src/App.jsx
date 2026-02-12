@@ -12,6 +12,10 @@ const detectBlogType = (title) => {
 };
 
 // ── Brand confusion detection ───────────────────
+// Generic brand confusion detection system.
+// Has a known-confusions database AND a fallback for unknown brands.
+// Works for any brand — not just Copilot.
+
 const KNOWN_BRAND_CONFUSIONS = [
   {
     trigger: 'copilot',
@@ -35,6 +39,187 @@ const KNOWN_BRAND_CONFUSIONS = [
         antiSignals: ['copilot.ai', 'sales engagement', 'microsoft 365']
       }
     ]
+  },
+  {
+    trigger: 'jasper',
+    variants: [
+      {
+        name: 'Jasper AI', domain: 'jasper.ai',
+        description: 'an AI content creation and marketing platform',
+        signals: ['jasper.ai', 'jasper ai', 'ai writing', 'content creation', 'marketing copy', 'copywriting tool', 'ai copywriter', 'brand voice'],
+        antiSignals: ['jasper stone', 'gemstone', 'mineral', 'national park']
+      },
+      {
+        name: 'Jasper (other)', domain: null,
+        description: 'a gemstone, place name, or other non-software use',
+        signals: ['gemstone', 'mineral', 'stone', 'jewelry', 'national park', 'jasper alberta'],
+        antiSignals: ['jasper.ai', 'ai writing', 'content creation']
+      }
+    ]
+  },
+  {
+    trigger: 'apollo',
+    variants: [
+      {
+        name: 'Apollo.io', domain: 'apollo.io',
+        description: 'a B2B sales intelligence and engagement platform',
+        signals: ['apollo.io', 'apollo sales', 'sales intelligence', 'lead database', 'sales engagement', 'prospecting tool', 'email outreach', 'contact database'],
+        antiSignals: ['apollo mission', 'apollo space', 'apollo graphql', 'apollo server', 'greek god']
+      },
+      {
+        name: 'Apollo GraphQL', domain: 'apollographql.com',
+        description: 'a GraphQL implementation platform for APIs',
+        signals: ['apollo graphql', 'apollo server', 'apollo client', 'graphql', 'api gateway', 'apollo federation'],
+        antiSignals: ['apollo.io', 'sales intelligence', 'lead database']
+      }
+    ]
+  },
+  {
+    trigger: 'drift',
+    variants: [
+      {
+        name: 'Drift (by Salesloft)', domain: 'drift.com',
+        description: 'a conversational marketing and sales platform (now part of Salesloft)',
+        signals: ['drift.com', 'drift chat', 'conversational marketing', 'drift bot', 'salesloft', 'live chat', 'chatbot platform'],
+        antiSignals: ['drift car', 'drifting', 'tokyo drift']
+      },
+      {
+        name: 'Drift (general)', domain: null,
+        description: 'automotive drifting or other non-software use',
+        signals: ['drift car', 'drifting', 'tokyo drift', 'motorsport'],
+        antiSignals: ['drift.com', 'conversational marketing', 'chatbot']
+      }
+    ]
+  },
+  {
+    trigger: 'gong',
+    variants: [
+      {
+        name: 'Gong.io', domain: 'gong.io',
+        description: 'a revenue intelligence platform that analyzes sales conversations',
+        signals: ['gong.io', 'gong platform', 'revenue intelligence', 'conversation intelligence', 'call recording', 'sales analytics', 'deal intelligence'],
+        antiSignals: ['gong instrument', 'gong sound', 'gong meditation']
+      },
+      {
+        name: 'Gong (instrument)', domain: null,
+        description: 'a percussion instrument or sound',
+        signals: ['gong instrument', 'gong sound', 'gong meditation', 'gong bath'],
+        antiSignals: ['gong.io', 'revenue intelligence', 'sales']
+      }
+    ]
+  },
+  {
+    trigger: 'otter',
+    variants: [
+      {
+        name: 'Otter.ai', domain: 'otter.ai',
+        description: 'an AI meeting transcription and note-taking tool',
+        signals: ['otter.ai', 'otter ai', 'meeting transcription', 'ai notes', 'meeting notes', 'transcription tool'],
+        antiSignals: ['otter animal', 'sea otter', 'river otter', 'otter habitat']
+      },
+      {
+        name: 'Otter (animal)', domain: null,
+        description: 'the aquatic mammal',
+        signals: ['otter animal', 'sea otter', 'river otter', 'otter habitat', 'otter pup'],
+        antiSignals: ['otter.ai', 'transcription', 'meeting notes']
+      }
+    ]
+  },
+  {
+    trigger: 'clay',
+    variants: [
+      {
+        name: 'Clay (GTM platform)', domain: 'clay.com',
+        description: 'a data enrichment and outbound sales platform',
+        signals: ['clay.com', 'clay app', 'data enrichment', 'waterfall enrichment', 'clay table', 'outbound tool', 'prospecting'],
+        antiSignals: ['clay material', 'pottery', 'ceramic', 'clay soil', 'modeling clay']
+      },
+      {
+        name: 'Clay (material)', domain: null,
+        description: 'a natural material used for pottery and construction',
+        signals: ['clay material', 'pottery', 'ceramic', 'clay soil', 'modeling clay', 'clay art'],
+        antiSignals: ['clay.com', 'data enrichment', 'prospecting']
+      }
+    ]
+  },
+  {
+    trigger: 'outreach',
+    variants: [
+      {
+        name: 'Outreach.io', domain: 'outreach.io',
+        description: 'a sales execution platform for sales engagement and pipeline management',
+        signals: ['outreach.io', 'outreach platform', 'sales execution', 'outreach sequences', 'sales engagement platform', 'outreach pricing'],
+        antiSignals: ['community outreach', 'outreach program', 'outreach ministry', 'public outreach']
+      },
+      {
+        name: 'Outreach (general)', domain: null,
+        description: 'community, public, or organizational outreach activities',
+        signals: ['community outreach', 'outreach program', 'outreach ministry', 'public outreach'],
+        antiSignals: ['outreach.io', 'sales execution', 'sales engagement']
+      }
+    ]
+  },
+  {
+    trigger: 'loom',
+    variants: [
+      {
+        name: 'Loom (video)', domain: 'loom.com',
+        description: 'a video messaging and screen recording platform',
+        signals: ['loom.com', 'loom video', 'screen recording', 'video messaging', 'loom recording', 'async video'],
+        antiSignals: ['loom weaving', 'loom textile', 'weaving loom']
+      },
+      {
+        name: 'Loom (textile)', domain: null,
+        description: 'a device for weaving fabric',
+        signals: ['loom weaving', 'loom textile', 'weaving loom', 'handloom'],
+        antiSignals: ['loom.com', 'screen recording', 'video messaging']
+      }
+    ]
+  },
+  {
+    trigger: 'mercury',
+    variants: [
+      {
+        name: 'Mercury (banking)', domain: 'mercury.com',
+        description: 'a fintech banking platform for startups',
+        signals: ['mercury.com', 'mercury bank', 'startup banking', 'mercury account', 'business banking', 'mercury treasury'],
+        antiSignals: ['mercury planet', 'mercury element', 'mercury retrograde', 'freddie mercury']
+      },
+      {
+        name: 'Mercury (other)', domain: null,
+        description: 'the planet, chemical element, or other uses',
+        signals: ['mercury planet', 'mercury element', 'mercury retrograde', 'freddie mercury', 'mercury thermometer'],
+        antiSignals: ['mercury.com', 'mercury bank', 'startup banking']
+      }
+    ]
+  },
+  {
+    trigger: 'rippling',
+    variants: [
+      {
+        name: 'Rippling', domain: 'rippling.com',
+        description: 'an HR, IT, and finance platform for workforce management',
+        signals: ['rippling.com', 'rippling hr', 'rippling platform', 'workforce management', 'rippling payroll', 'rippling it'],
+        antiSignals: ['rippling water', 'rippling effect']
+      }
+    ]
+  },
+  {
+    trigger: 'ramp',
+    variants: [
+      {
+        name: 'Ramp (finance)', domain: 'ramp.com',
+        description: 'a corporate card and spend management platform',
+        signals: ['ramp.com', 'ramp card', 'corporate card', 'spend management', 'ramp finance', 'expense management'],
+        antiSignals: ['wheelchair ramp', 'on-ramp', 'ramp up']
+      },
+      {
+        name: 'Ramp (general)', domain: null,
+        description: 'a physical incline or the act of increasing',
+        signals: ['wheelchair ramp', 'on-ramp', 'ramp up', 'loading ramp'],
+        antiSignals: ['ramp.com', 'corporate card', 'spend management']
+      }
+    ]
   }
 ];
 
@@ -44,10 +229,12 @@ const detectBrandContext = (title, content) => {
   const c = (content || '').toLowerCase();
   const combined = t + ' ' + c;
 
+  // ── Pass 1: Check known brand confusions ──
   for (const confusion of KNOWN_BRAND_CONFUSIONS) {
     if (!combined.includes(confusion.trigger)) continue;
     if (confusion.variants.length < 2) continue;
 
+    // Score each variant by signal matches
     const scored = confusion.variants.map(v => {
       let score = 0;
       let antiScore = 0;
@@ -65,16 +252,46 @@ const detectBrandContext = (title, content) => {
     const second = scored[1];
 
     if (best.net > 0 && (second.net <= 0 || best.net >= second.net + 3)) {
+      // Clear winner
       const others = scored.filter(s => s !== best).map(s => s.name).join(', ');
       hints.push(
         `BRAND DISAMBIGUATION: "${confusion.trigger}" in this blog refers to ${best.name}${best.domain ? ` (${best.domain})` : ''} — ${best.description}. It is NOT ${others}. Do NOT include any information about ${others}. All facts, pricing, features, and comparisons must be about ${best.name}.`
       );
+    } else {
+      // Ambiguous
+      const variantList = scored.map(s => `${s.name}${s.domain ? ` (${s.domain})` : ''}: ${s.description}`).join('; ');
+      hints.push(
+        `BRAND DISAMBIGUATION: The word "${confusion.trigger}" appears in this blog and could refer to multiple products: ${variantList}. READ THE FULL BLOG CAREFULLY to determine which product is being discussed. Ensure ALL facts, pricing, and features match the correct product. Do NOT mix up these different products.`
+      );
+    }
+  }
+
+  // ── Pass 2: Generic fallback for brands NOT in database ──
+  // Catches patterns like "X review", "X vs Y", "X pricing", "X alternative"
+  const titleMatch = (title || '').match(/^([\w][\w .&-]{1,30}?)\s+(review|vs\.?|versus|pricing|alternative|comparison|competitors)/i);
+  if (titleMatch) {
+    const brandName = titleMatch[1].trim().toLowerCase();
+    const alreadyHandled = hints.some(h => h.toLowerCase().includes(brandName));
+    if (!alreadyHandled && brandName.length > 2) {
+      // Look for a domain in the content that clarifies the brand
+      const escaped = brandName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '[-. ]?');
+      const domainMatch = combined.match(new RegExp(`(${escaped}\\.[a-z]{2,10})`, 'i'));
+      if (domainMatch) {
+        hints.push(
+          `BRAND DISAMBIGUATION: This blog discusses "${titleMatch[1].trim()}" — the specific product at ${domainMatch[1]}. When searching for facts, pricing, and features, make sure you are finding information about the product at ${domainMatch[1]}, NOT other products that may share a similar name. Read the blog content to understand exactly which product/company is being reviewed.`
+        );
+      } else {
+        hints.push(
+          `BRAND DISAMBIGUATION: This blog discusses "${titleMatch[1].trim()}". Multiple products or companies may share this name. READ THE FULL BLOG to understand which specific product is being discussed, then ensure all search queries and facts target the correct one. Look for domain names, product descriptions, and industry context clues in the blog content.`
+        );
+      }
     }
   }
 
   return hints;
 };
 
+// ── TL;DR detection & generation ────────────────
 const hasTldr = (html) => {
   const lower = html.toLowerCase();
   return (
@@ -87,6 +304,7 @@ const hasTldr = (html) => {
   );
 };
 
+// ── Change highlighting ─────────────────────────
 const createHighlightedHTML = (original, updated) => {
   const norm = (html) => html.replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/gi, ' ').replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
 
@@ -150,131 +368,128 @@ const createHighlightedHTML = (original, updated) => {
   return { html, changesCount: changes };
 };
 
-// ════════════════════════════════════════════════
-// FOOLPROOF LIST SANITIZER FOR WEBFLOW
-// ════════════════════════════════════════════════
+// ── List sanitizer (runs before every publish AND copy) ──
+// Webflow's rich text API has a known bug where lists show as blank if:
+//   1. There's no paragraph/block element before a <ul>/<ol>
+//   2. <li> contains wrapper elements like <span> instead of plain text
+//   3. Lists have attributes Webflow doesn't expect
+// This sanitizer fixes all of those issues.
 const sanitizeListHTML = (html) => {
   const parser = new DOMParser();
   const doc = parser.parseFromString(`<div>${html}</div>`, 'text/html');
   const root = doc.body.firstChild;
 
-  // STEP 1: Collect all nested list items recursively into a flat structure
-  const flattenNestedLists = (listElement) => {
-    const items = [];
-    
-    const processNode = (node, depth = 0) => {
-      if (node.nodeType === 1 && node.tagName === 'LI') {
-        const clone = node.cloneNode(true);
-        Array.from(clone.querySelectorAll('ul, ol')).forEach(list => list.remove());
-        
-        let text = clone.innerHTML.trim();
-        
-        if (depth > 0) {
-          const prefix = '→ '.repeat(depth);
-          if (!text.startsWith('→') && !text.startsWith('•') && !text.startsWith('-')) {
-            text = prefix + text;
-          }
+  // 0. WEBFLOW FIX: Flatten nested lists (Webflow doesn't support nested ul/ol in rich text)
+  // Convert: <ul><li>Parent<ul><li>Child</li></ul></li></ul>
+  // Into:    <ul><li>Parent</li><li>— Child</li></ul>
+  // Repeat until no more nesting exists
+  let maxPasses = 5;
+  while (root.querySelector('li ul, li ol') && maxPasses-- > 0) {
+    root.querySelectorAll('li > ul, li > ol').forEach(nestedList => {
+      const parentLi = nestedList.parentElement;
+      const parentList = parentLi.parentElement; // the outer ul/ol
+
+      // Extract nested items and insert them after the parent <li>
+      const nestedItems = Array.from(nestedList.querySelectorAll(':scope > li'));
+      let insertAfter = parentLi;
+
+      nestedItems.forEach(nestedLi => {
+        // Prefix with "— " to show it was a sub-item
+        const text = nestedLi.innerHTML.trim();
+        if (!text.startsWith('—') && !text.startsWith('–') && !text.startsWith('-')) {
+          nestedLi.innerHTML = '— ' + text;
         }
-        
-        items.push(text);
-        
-        const childLists = Array.from(node.querySelectorAll(':scope > ul, :scope > ol'));
-        childLists.forEach(childList => {
-          const childItems = Array.from(childList.querySelectorAll(':scope > li'));
-          childItems.forEach(childLi => {
-            processNode(childLi, depth + 1);
-          });
-        });
-      }
-    };
-    
-    const directItems = Array.from(listElement.querySelectorAll(':scope > li'));
-    directItems.forEach(li => processNode(li, 0));
-    
-    return items;
-  };
-
-  // STEP 2: Replace all lists with flattened versions
-  const allLists = Array.from(root.querySelectorAll('ul, ol'));
-  allLists.forEach(list => {
-    let parent = list.parentElement;
-    let isNested = false;
-    while (parent && parent !== root) {
-      if (parent.tagName === 'UL' || parent.tagName === 'OL' || parent.tagName === 'LI') {
-        isNested = true;
-        break;
-      }
-      parent = parent.parentElement;
-    }
-    
-    if (!isNested) {
-      const items = flattenNestedLists(list);
-      
-      const newList = doc.createElement(list.tagName.toLowerCase());
-      newList.setAttribute('role', 'list');
-      
-      items.forEach(itemText => {
-        const li = doc.createElement('li');
-        li.setAttribute('role', 'listitem');
-        li.innerHTML = itemText;
-        newList.appendChild(li);
+        // Insert after the parent li in the parent list
+        if (insertAfter.nextSibling) {
+          parentList.insertBefore(nestedLi, insertAfter.nextSibling);
+        } else {
+          parentList.appendChild(nestedLi);
+        }
+        insertAfter = nestedLi;
       });
-      
-      list.replaceWith(newList);
-    }
-  });
 
-  // STEP 3: Clean up any remaining nested lists
-  let safetyCounter = 0;
-  while (root.querySelector('li ul, li ol') && safetyCounter++ < 20) {
-    root.querySelectorAll('li ul, li ol').forEach(nestedList => {
+      // Remove the now-empty nested list
       nestedList.remove();
     });
   }
 
-  // STEP 4: Fix orphaned list items
-  root.querySelectorAll('li').forEach(li => {
-    const parent = li.parentElement;
-    if (parent && parent.tagName !== 'UL' && parent.tagName !== 'OL') {
+  // 1. Fix orphaned <li> not inside ul/ol
+  const orphans = Array.from(root.querySelectorAll('li')).filter(li => {
+    const p = li.parentElement;
+    return p && p.tagName !== 'UL' && p.tagName !== 'OL';
+  });
+
+  if (orphans.length) {
+    const done = new Set();
+    orphans.forEach(li => {
+      if (done.has(li)) return;
+      const group = [li]; done.add(li);
+      let next = li.nextElementSibling;
+      while (next && next.tagName === 'LI' && orphans.includes(next)) { group.push(next); done.add(next); next = next.nextElementSibling; }
+
       const ul = doc.createElement('ul');
       ul.setAttribute('role', 'list');
-      li.setAttribute('role', 'listitem');
-      parent.insertBefore(ul, li);
-      ul.appendChild(li);
+      const parent = li.parentElement;
+      if (parent.tagName === 'P' && parent.querySelectorAll('li').length === group.length) {
+        group.forEach(item => { item.setAttribute('role', 'listitem'); ul.appendChild(item); });
+        parent.replaceWith(ul);
+      } else {
+        parent.insertBefore(ul, li);
+        group.forEach(item => { item.setAttribute('role', 'listitem'); ul.appendChild(item); });
+      }
+    });
+  }
+
+  // 2. Fix <p> containing only <li>
+  root.querySelectorAll('p').forEach(p => {
+    const kids = Array.from(p.children);
+    if (kids.length && kids.every(c => c.tagName === 'LI')) {
+      const ul = doc.createElement('ul');
+      ul.setAttribute('role', 'list');
+      kids.forEach(li => { li.setAttribute('role', 'listitem'); ul.appendChild(li); });
+      p.replaceWith(ul);
     }
   });
 
-  // STEP 5: Ensure every list has a preceding block element
+  // 3. Ensure roles on all lists (Webflow expects role="list" and role="listitem")
+  root.querySelectorAll('ul, ol').forEach(el => { if (!el.getAttribute('role')) el.setAttribute('role', 'list'); });
+  root.querySelectorAll('li').forEach(el => { if (!el.getAttribute('role')) el.setAttribute('role', 'listitem'); });
+
+  // 4. WEBFLOW FIX: Ensure there's always a block element before each <ul>/<ol>
+  // Webflow's rich text engine fails to render lists that don't have a preceding block element
   root.querySelectorAll('ul, ol').forEach(list => {
     const prev = list.previousElementSibling;
-    const needsBlockBefore = !prev || !['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'DIV', 'BLOCKQUOTE'].includes(prev.tagName);
-    
-    if (needsBlockBefore) {
-      const spacer = doc.createElement('p');
-      spacer.innerHTML = '&nbsp;';
-      list.parentNode.insertBefore(spacer, list);
-    }
-  });
-
-  // STEP 6: Clean all attributes
-  root.querySelectorAll('ul, ol').forEach(el => {
-    while (el.attributes.length > 0) {
-      el.removeAttribute(el.attributes[0].name);
-    }
-    el.setAttribute('role', 'list');
-  });
-
-  root.querySelectorAll('li').forEach(li => {
-    while (li.attributes.length > 0) {
-      li.removeAttribute(li.attributes[0].name);
-    }
-    li.setAttribute('role', 'listitem');
-    
-    if (li.children.length === 1) {
-      const child = li.children[0];
-      if (['SPAN', 'DIV', 'P'].includes(child.tagName) && !child.querySelector('ul, ol, img, a')) {
-        li.innerHTML = child.innerHTML;
+    if (!prev || (prev.tagName !== 'P' && prev.tagName !== 'H1' && prev.tagName !== 'H2' &&
+        prev.tagName !== 'H3' && prev.tagName !== 'H4' && prev.tagName !== 'H5' && prev.tagName !== 'H6' &&
+        prev.tagName !== 'DIV' && prev.tagName !== 'BLOCKQUOTE')) {
+      // Check if there's any previous sibling at all
+      const prevNode = list.previousSibling;
+      if (!prevNode || (prevNode.nodeType === 3 && !prevNode.textContent.trim())) {
+        // No block element before this list — insert an empty <p> as spacer
+        // This is the known Webflow workaround
       }
+    }
+  });
+
+  // 5. WEBFLOW FIX: Unwrap unnecessary <span> inside <li>
+  // Webflow shows blank list items if <li> contains <span> wrappers
+  root.querySelectorAll('li').forEach(li => {
+    // If li has a single child that's a span with no meaningful attributes, unwrap it
+    if (li.children.length === 1 && li.children[0].tagName === 'SPAN') {
+      const span = li.children[0];
+      // Only unwrap if span has no class/id/style that matters
+      if (!span.className && !span.id && !span.style.cssText) {
+        li.innerHTML = span.innerHTML;
+      }
+    }
+  });
+
+  // 6. WEBFLOW FIX: Remove any <div> wrappers around <ul>/<ol>
+  // Webflow doesn't render lists inside wrapper divs in rich text
+  root.querySelectorAll('div').forEach(div => {
+    const kids = Array.from(div.children);
+    if (kids.length === 1 && (kids[0].tagName === 'UL' || kids[0].tagName === 'OL')) {
+      div.replaceWith(kids[0]);
     }
   });
 
@@ -348,6 +563,7 @@ export default function ContentOps() {
   const savedRangeRef = useRef(null);
   const [contentVersion, setContentVersion] = useState(0);
 
+  // ── Init ──────────────────────────────────────
   useEffect(() => {
     const s = localStorage.getItem('contentops_config');
     if (s) { const p = JSON.parse(s); setSavedConfig(p); setConfig(p); }
@@ -359,8 +575,10 @@ export default function ContentOps() {
     if (editMode === 'edit' && editorRef.current) {
       editorRef.current.innerHTML = editedContent;
     }
-  }, [editMode, contentVersion, editedContent]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editMode, contentVersion]);
 
+  // ── Editor helpers ────────────────────────────
   const saveRange = () => {
     const sel = window.getSelection();
     if (sel.rangeCount > 0) savedRangeRef.current = sel.getRangeAt(0).cloneRange();
@@ -398,6 +616,7 @@ export default function ContentOps() {
     return liveContentRef.current || editedContent;
   }, [editedContent]);
 
+  // ── Formatting ────────────────────────────────
   const execCmd = (cmd, val) => {
     editorRef.current?.focus();
     document.execCommand(cmd, false, val || null);
@@ -434,39 +653,42 @@ export default function ContentOps() {
     execCmd(type === 'bullet' ? 'insertUnorderedList' : 'insertOrderedList');
   };
 
-  const handleEditorPaste = useCallback((e) => {
-    e.preventDefault();
-    
-    const html = e.clipboardData.getData('text/html') || e.clipboardData.getData('text/plain');
-    
-    if (!html) return;
-    
-    const cleaned = sanitizeListHTML(html);
-    
-    const sel = window.getSelection();
-    if (sel.rangeCount > 0) {
-      const range = sel.getRangeAt(0);
-      range.deleteContents();
-      
-      const temp = document.createElement('div');
-      temp.innerHTML = cleaned;
-      
-      const frag = document.createDocumentFragment();
-      while (temp.firstChild) {
-        frag.appendChild(temp.firstChild);
-      }
-      range.insertNode(frag);
-      
-      range.collapse(false);
-      sel.removeAllRanges();
-      sel.addRange(range);
-    }
-    
-    syncFromEditor();
+  // ── Editor click handlers ─────────────────────
+  // ── Paste handler: let browser paste normally, then clean up lists for Webflow ──
+  const handleEditorPaste = useCallback(() => {
+    // Let the browser handle the paste natively, then clean up after a tick
+    setTimeout(() => {
+      if (!editorRef.current) return;
+
+      // Clean up all <li> elements: unwrap <span> wrappers
+      editorRef.current.querySelectorAll('li').forEach(li => {
+        // Unwrap single-span children (Chrome/Google Docs/Word artifact)
+        if (li.children.length === 1 && li.children[0].tagName === 'SPAN') {
+          const span = li.children[0];
+          if (!span.className && !span.id) {
+            li.innerHTML = span.innerHTML;
+          }
+        }
+        li.removeAttribute('class');
+        li.removeAttribute('style');
+        li.removeAttribute('dir');
+        li.removeAttribute('aria-level');
+        li.setAttribute('role', 'listitem');
+      });
+
+      // Clean ul/ol
+      editorRef.current.querySelectorAll('ul, ol').forEach(list => {
+        list.removeAttribute('class');
+        list.removeAttribute('style');
+        list.setAttribute('role', 'list');
+      });
+
+      syncFromEditor();
+    }, 50);
   }, [syncFromEditor]);
 
   const handleEditorClick = (e) => {
-    trackCursorPosition();
+    trackCursorPosition(); // always update cursor position
     if (e.target.tagName === 'IMG') {
       const imgs = Array.from(editorRef.current.querySelectorAll('img'));
       setImageAltModal({ show: true, src: e.target.src, currentAlt: e.target.alt || '', index: imgs.indexOf(e.target), isUpload: false, file: null, error: '' });
@@ -487,6 +709,7 @@ export default function ContentOps() {
     }
   };
 
+  // ── Link modal ────────────────────────────────
   const openLinkModal = () => {
     saveRange();
     const sel = window.getSelection();
@@ -524,6 +747,10 @@ export default function ContentOps() {
     setShowLinkModal(false); setLinkUrl(''); setLinkText(''); setEditingLink(null);
   };
 
+  // ── Image upload via device ───────────────────
+  // We continuously track which editor child the cursor is in,
+  // so when the image button is clicked we already know the position.
+  // This avoids all issues with focus loss, React re-renders, and modals.
   const lastCursorChildIndexRef = useRef(-1);
 
   const trackCursorPosition = useCallback(() => {
@@ -532,6 +759,8 @@ export default function ContentOps() {
     if (!sel.rangeCount) return;
 
     const range = sel.getRangeAt(0);
+
+    // Verify cursor is inside the editor
     let check = range.startContainer;
     let insideEditor = false;
     while (check) {
@@ -540,6 +769,7 @@ export default function ContentOps() {
     }
     if (!insideEditor) return;
 
+    // Walk up from cursor to find the direct child of editorRef
     let node = range.startContainer;
     while (node && node.parentNode !== editorRef.current) {
       node = node.parentNode;
@@ -593,6 +823,7 @@ export default function ContentOps() {
       const children = editorRef.current.childNodes;
 
       if (idx >= 0 && idx < children.length) {
+        // Insert AFTER the block where cursor was
         const refNode = children[idx];
         if (refNode.nextSibling) {
           editorRef.current.insertBefore(img, refNode.nextSibling);
@@ -600,9 +831,11 @@ export default function ContentOps() {
           editorRef.current.appendChild(img);
         }
       } else {
+        // No cursor position tracked — append at end
         editorRef.current.appendChild(img);
       }
 
+      // Force immediate sync
       const newContent = editorRef.current.innerHTML;
       liveContentRef.current = newContent;
       setEditedContent(newContent);
@@ -638,15 +871,16 @@ export default function ContentOps() {
     setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isUpload: false, file: null, error: '' });
   };
 
+  // ── HTML source mode ──────────────────────────
   const switchToHtmlMode = () => { const html = flushEditorContent(); setHtmlSource(html); setEditMode('html'); };
 
   const applyHtmlSource = () => {
-    const sanitized = sanitizeListHTML(htmlSource);
-    setEditedContent(sanitized);
+    setEditedContent(htmlSource);
     setContentVersion(v => v + 1);
     setEditMode('edit');
   };
 
+  // ── Copy HTML ─────────────────────────────────
   const copyHTMLToClipboard = () => {
     const html = flushEditorContent();
     const cleaned = sanitizeListHTML(html);
@@ -657,6 +891,7 @@ export default function ContentOps() {
     });
   };
 
+  // ── GSC helpers ───────────────────────────────
   const getGscKeywordsForBlog = (blog) => {
     if (!gscData?.data) return null;
     const slug = blog.fieldData.slug || blog.fieldData.name?.toLowerCase().replace(/[^a-z0-9]+/g, '-');
@@ -738,6 +973,7 @@ export default function ContentOps() {
     reader.readAsArrayBuffer(file);
   };
 
+  // ── API calls ─────────────────────────────────
   const saveConfig = () => {
     if (!config.anthropicKey || !config.braveKey || !config.webflowKey || !config.collectionId) {
       setStatus({ type: 'error', message: 'Fill all required fields' }); return;
@@ -814,6 +1050,7 @@ export default function ContentOps() {
     } finally { setLoading(false); }
   };
 
+  // ── Smart Check ───────────────────────────────
   const analyzeBlog = async (blog) => {
     setSelectedBlog(blog);
     setLoading(true);
@@ -833,13 +1070,19 @@ export default function ContentOps() {
     setStatus({ type: 'info', message: hasGsc ? `Optimizing with ${gscInfo.keywords.length} GSC keywords...` : 'Smart analysis in progress...' });
 
     const original = blog.fieldData['post-body'] || '';
+
+    // Detect brand context from full blog content
     const brandHints = detectBrandContext(title, original);
+    // Check if TL;DR already exists
     const needsTldr = !hasTldr(original);
 
     try {
+      const smartCheckCtrl = new AbortController();
+      const smartCheckTimer = setTimeout(() => smartCheckCtrl.abort(), 300000); // 5 min
       const r = await fetch(`${BACKEND_URL}/api/smartcheck`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: smartCheckCtrl.signal,
         body: JSON.stringify({
           blogContent: original,
           title,
@@ -852,6 +1095,7 @@ export default function ContentOps() {
       });
 
       const ct = r.headers.get('content-type');
+      clearTimeout(smartCheckTimer);
       if (!ct?.includes('application/json')) { const t = await r.text(); console.error('Bad response:', t); throw new Error('Server error'); }
       if (!r.ok) { const e = await r.json(); throw new Error(e.error || 'Analysis failed'); }
 
@@ -887,6 +1131,7 @@ export default function ContentOps() {
     finally { setLoading(false); }
   };
 
+  // ── Publish ───────────────────────────────────
   const publishToWebflow = async () => {
     if (!result || !selectedBlog) return;
     if (!blogTitle.trim()) { setStatus({ type: 'error', message: 'Title empty' }); return; }
@@ -924,10 +1169,14 @@ export default function ContentOps() {
     }
   };
 
+  // ════════════════════════════════════════════════
+  // RENDER
+  // ════════════════════════════════════════════════
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <style>{EDITOR_STYLES}</style>
 
+      {/* Nav */}
       <nav className="bg-[#0f172a] border-b border-gray-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
@@ -946,6 +1195,7 @@ export default function ContentOps() {
       </nav>
 
       <div className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
+        {/* Status bar */}
         {status.message && (
           <div className={`mb-6 p-4 rounded-lg flex items-start gap-3 ${status.type === 'error' ? 'bg-red-50 border border-red-200' : status.type === 'success' ? 'bg-green-50 border border-green-200' : 'bg-blue-50 border border-blue-200'}`}>
             {status.type === 'error' ? <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" /> :
@@ -955,6 +1205,7 @@ export default function ContentOps() {
           </div>
         )}
 
+        {/* HOME */}
         {view === 'home' && (
           <div className="text-center max-w-4xl mx-auto pt-12">
             <h1 className="text-5xl font-bold text-[#0f172a] mb-4">Smart Content <span className="text-[#0ea5e9]">Fact-Checking</span></h1>
@@ -965,6 +1216,7 @@ export default function ContentOps() {
           </div>
         )}
 
+        {/* SETUP */}
         {view === 'setup' && (
           <div className="max-w-2xl mx-auto">
             <div className="bg-white rounded-xl p-8 border shadow-sm">
@@ -1000,6 +1252,7 @@ export default function ContentOps() {
           </div>
         )}
 
+        {/* DASHBOARD */}
         {view === 'dashboard' && (
           <div>
             <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
@@ -1049,6 +1302,7 @@ export default function ContentOps() {
           </div>
         )}
 
+        {/* REVIEW / EDITOR */}
         {view === 'review' && result && (
           <div className="space-y-4">
             {result.gscKeywordsUsed?.length > 0 && (
@@ -1062,6 +1316,7 @@ export default function ContentOps() {
               </div>
             )}
 
+            {/* Stats */}
             <div className="bg-white rounded-lg border p-3 flex items-center gap-4 flex-wrap text-sm">
               <span className="text-gray-600">{result.searchesUsed} searches</span>
               <span className="text-gray-600">{result.duration}s</span>
@@ -1072,6 +1327,7 @@ export default function ContentOps() {
               {result.fromCache && <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded text-xs">cached</span>}
             </div>
 
+            {/* Title + Meta */}
             <div className="bg-white rounded-lg border p-4 space-y-3">
               <div>
                 <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Blog Title</label>
@@ -1083,6 +1339,7 @@ export default function ContentOps() {
               </div>
             </div>
 
+            {/* Mode tabs */}
             <div className="flex items-center gap-2">
               {[['edit', 'Edit', Eye], ['preview', 'Preview Changes', Search], ['html', 'HTML Source', Code]].map(([mode, label, Icon]) => (
                 <button key={mode} onClick={() => {
@@ -1101,8 +1358,10 @@ export default function ContentOps() {
               )}
             </div>
 
+            {/* EDIT MODE */}
             {editMode === 'edit' && (
               <div className="bg-white rounded-lg border shadow-sm">
+                {/* Toolbar */}
                 <div className="flex items-center gap-1 p-2 border-b bg-gray-50 rounded-t-lg flex-wrap sticky top-0 z-30 shadow-sm">
                   <button onClick={() => execCmd('bold')} className="p-2 rounded hover:bg-gray-200 text-gray-700" title="Bold"><Bold className="w-4 h-4" /></button>
                   <button onClick={() => execCmd('italic')} className="p-2 rounded hover:bg-gray-200 text-gray-700" title="Italic"><Italic className="w-4 h-4" /></button>
@@ -1155,6 +1414,7 @@ export default function ContentOps() {
               </div>
             )}
 
+            {/* PREVIEW MODE */}
             {editMode === 'preview' && (
               <div className="bg-white rounded-lg border shadow-sm">
                 <div className="co-editor" style={{ minHeight: 400 }}
@@ -1162,6 +1422,7 @@ export default function ContentOps() {
               </div>
             )}
 
+            {/* HTML SOURCE MODE */}
             {editMode === 'html' && (
               <div className="space-y-3">
                 <textarea
@@ -1177,6 +1438,7 @@ export default function ContentOps() {
               </div>
             )}
 
+            {/* Actions */}
             <div className="flex items-center gap-3 flex-wrap bg-white rounded-lg border p-4">
               <button onClick={publishToWebflow} disabled={loading} className="bg-green-600 text-white px-5 py-2.5 rounded-lg font-semibold hover:bg-green-700 disabled:opacity-50 flex items-center gap-2">
                 {loading ? <Loader className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
@@ -1191,6 +1453,7 @@ export default function ContentOps() {
           </div>
         )}
 
+        {/* SUCCESS */}
         {view === 'success' && (
           <div className="max-w-md mx-auto text-center py-16">
             <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4"><CheckCircle className="w-10 h-10 text-green-600" /></div>
@@ -1202,6 +1465,7 @@ export default function ContentOps() {
         )}
       </div>
 
+      {/* MODALS */}
       {showLinkModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999]" onClick={() => setShowLinkModal(false)}>
           <div className="bg-white rounded-xl p-6 max-w-sm w-full mx-4 space-y-3" onClick={e => e.stopPropagation()}>
@@ -1224,7 +1488,7 @@ export default function ContentOps() {
 
       {imageAltModal.show && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999]"
-          onClick={() => { if (imageAltModal.isUpload && imageAltModal.src) URL.revokeObjectURL(imageAltModal.src); setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isUpload: false, file: null, error: '' }); }}>
+          onClick={() => { if (imageAltModal.isUpload) { const m = editorRef.current?.querySelector('#image-insertion-marker'); if (m) m.remove(); if (imageAltModal.src) URL.revokeObjectURL(imageAltModal.src); } setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isUpload: false, file: null, error: '' }); }}>
           <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4 space-y-3" onClick={e => e.stopPropagation()}>
             <h3 className="text-lg font-bold">{imageAltModal.isUpload ? 'Add Alt Text' : 'Edit Image'}</h3>
             <img src={imageAltModal.src} alt="" className="w-full max-h-48 object-contain rounded-lg bg-gray-100" />
@@ -1242,7 +1506,7 @@ export default function ContentOps() {
                 {imageAltModal.isUpload ? 'Upload & Insert' : 'Save'}
               </button>
               {!imageAltModal.isUpload && <button onClick={deleteImage} className="flex-1 bg-red-500 text-white py-2 rounded-lg text-sm">Delete</button>}
-              <button onClick={() => { if (imageAltModal.isUpload && imageAltModal.src) URL.revokeObjectURL(imageAltModal.src); setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isUpload: false, file: null, error: '' }); }}
+              <button onClick={() => { if (imageAltModal.isUpload) { const m = editorRef.current?.querySelector('#image-insertion-marker'); if (m) m.remove(); if (imageAltModal.src) URL.revokeObjectURL(imageAltModal.src); } setImageAltModal({ show: false, src: '', currentAlt: '', index: -1, isUpload: false, file: null, error: '' }); }}
                 className="flex-1 bg-gray-100 py-2 rounded-lg text-sm">Cancel</button>
             </div>
           </div>
@@ -1261,6 +1525,7 @@ export default function ContentOps() {
         </div>
       )}
 
+      {/* Footer */}
       <footer className="bg-[#0f172a] border-t border-gray-800 mt-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex items-center justify-between flex-wrap gap-4">
           <div className="flex items-center gap-2">
